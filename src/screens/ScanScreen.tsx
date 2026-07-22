@@ -1,0 +1,301 @@
+import React, { useCallback, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
+import { AgentRun, AppSettings, ContextNote, ScanEvent } from '../types';
+import { runScan } from '../lib/claude';
+import { colors } from '../ui/theme';
+
+// 1D symbologies only, per app requirements.
+const BARCODE_TYPES = [
+  'upc_a',
+  'upc_e',
+  'ean13',
+  'ean8',
+  'code39',
+  'code93',
+  'code128',
+  'itf14',
+  'codabar',
+] as const;
+
+interface Props {
+  apiKey: string;
+  settings: AppSettings;
+  contexts: ContextNote[];
+}
+
+export default function ScanScreen({ apiKey, settings, contexts }: Props) {
+  const [permission, requestPermission] = useCameraPermissions();
+  const [scanning, setScanning] = useState(true);
+  const [lastScan, setLastScan] = useState<ScanEvent | null>(null);
+  const [manualCode, setManualCode] = useState('');
+  const [run, setRun] = useState<AgentRun>({ status: 'idle', blocks: [] });
+  const busyRef = useRef(false);
+
+  const activeContext = contexts.find((c) => c.active);
+
+  const startRun = useCallback(
+    async (scan: ScanEvent) => {
+      if (busyRef.current) return;
+      busyRef.current = true;
+      setLastScan(scan);
+      setScanning(false);
+
+      if (!apiKey) {
+        setRun({
+          status: 'error',
+          blocks: [],
+          error: 'No Claude API key set. Add one in Settings.',
+        });
+        busyRef.current = false;
+        return;
+      }
+
+      setRun({ status: 'running', blocks: [] });
+      try {
+        const result = await runScan(apiKey, settings, activeContext, scan, {
+          onBlocks: (blocks) => setRun({ status: 'running', blocks }),
+        });
+        setRun({ status: 'done', blocks: result.blocks, stopReason: result.stopReason });
+      } catch (e: any) {
+        setRun({
+          status: 'error',
+          blocks: [],
+          error: e?.message ?? String(e),
+        });
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [apiKey, settings, activeContext],
+  );
+
+  const onBarcodeScanned = useCallback(
+    (result: BarcodeScanningResult) => {
+      if (!scanning || busyRef.current) return;
+      startRun({ data: result.data, type: result.type, timestamp: Date.now() });
+    },
+    [scanning, startRun],
+  );
+
+  const submitManual = () => {
+    const code = manualCode.trim();
+    if (!code) return;
+    setManualCode('');
+    startRun({ data: code, type: 'manual', timestamp: Date.now() });
+  };
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
+      <View style={styles.cameraBox}>
+        {permission?.granted ? (
+          scanning ? (
+            <CameraView
+              style={StyleSheet.absoluteFill}
+              facing="back"
+              barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }}
+              onBarcodeScanned={onBarcodeScanned}
+            />
+          ) : (
+            <View style={styles.cameraPlaceholder}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => setScanning(true)}>
+                <Text style={styles.primaryButtonText}>Scan again</Text>
+              </TouchableOpacity>
+            </View>
+          )
+        ) : (
+          <View style={styles.cameraPlaceholder}>
+            <Text style={styles.dimText}>Camera access is needed to scan barcodes.</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+              <Text style={styles.primaryButtonText}>Grant camera access</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {scanning && permission?.granted && (
+          <View pointerEvents="none" style={styles.reticle} />
+        )}
+      </View>
+
+      <View style={styles.manualRow}>
+        <TextInput
+          style={styles.input}
+          placeholder="Or type a barcode…"
+          placeholderTextColor={colors.textDim}
+          value={manualCode}
+          onChangeText={setManualCode}
+          onSubmitEditing={submitManual}
+          autoCapitalize="none"
+          autoCorrect={false}
+          keyboardType="numbers-and-punctuation"
+          returnKeyType="go"
+        />
+        <TouchableOpacity style={styles.primaryButton} onPress={submitManual}>
+          <Text style={styles.primaryButtonText}>Go</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.contextBanner}>
+        <Text style={styles.dimText} numberOfLines={1}>
+          Context: <Text style={{ color: colors.text }}>{activeContext?.name ?? 'None'}</Text>
+          {'   '}Model: <Text style={{ color: colors.text }}>{settings.model}</Text>
+        </Text>
+      </View>
+
+      <ScrollView style={styles.results} contentContainerStyle={{ paddingBottom: 24 }}>
+        {lastScan && (
+          <View style={styles.scanChip}>
+            <Text style={styles.scanChipText}>
+              {lastScan.data} <Text style={styles.dimText}>({lastScan.type})</Text>
+            </Text>
+          </View>
+        )}
+        {run.status === 'running' && (
+          <View style={styles.runningRow}>
+            <ActivityIndicator color={colors.accent} />
+            <Text style={[styles.dimText, { marginLeft: 8 }]}>Asking Claude…</Text>
+          </View>
+        )}
+        {run.status === 'error' && <Text style={styles.errorText}>{run.error}</Text>}
+        {run.blocks.map((block, i) => {
+          switch (block.kind) {
+            case 'text':
+              return (
+                <Text key={i} style={styles.answerText}>
+                  {block.text}
+                </Text>
+              );
+            case 'thinking':
+              return (
+                <Text key={i} style={styles.thinkingText} numberOfLines={6}>
+                  {block.text}
+                </Text>
+              );
+            case 'tool_use':
+              return (
+                <View key={i} style={styles.toolCard}>
+                  <Text style={styles.toolTitle}>
+                    ⚙ {block.server} → {block.tool}
+                  </Text>
+                  <Text style={styles.toolBody} numberOfLines={4}>
+                    {block.input}
+                  </Text>
+                </View>
+              );
+            case 'tool_result':
+              return (
+                <View key={i} style={[styles.toolCard, block.isError && styles.toolCardError]}>
+                  <Text style={styles.toolTitle}>{block.isError ? '✕ Tool error' : '✓ Tool result'}</Text>
+                  <Text style={styles.toolBody} numberOfLines={8}>
+                    {block.content}
+                  </Text>
+                </View>
+              );
+          }
+        })}
+        {run.status === 'idle' && !lastScan && (
+          <Text style={[styles.dimText, { textAlign: 'center', marginTop: 24 }]}>
+            Point the camera at a 1D barcode.{'\n'}The active context note decides what happens next.
+          </Text>
+        )}
+      </ScrollView>
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, backgroundColor: colors.bg },
+  cameraBox: {
+    height: 240,
+    backgroundColor: '#000',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    overflow: 'hidden',
+  },
+  cameraPlaceholder: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    padding: 16,
+  },
+  reticle: {
+    position: 'absolute',
+    left: '12%',
+    right: '12%',
+    top: '38%',
+    height: 60,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    borderRadius: 8,
+    opacity: 0.8,
+  },
+  manualRow: {
+    flexDirection: 'row',
+    gap: 8,
+    padding: 12,
+  },
+  input: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    color: colors.text,
+  },
+  primaryButton: {
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  primaryButtonText: { color: colors.accentText, fontWeight: '600' },
+  contextBanner: { paddingHorizontal: 12, paddingBottom: 8 },
+  results: { flex: 1, paddingHorizontal: 12 },
+  scanChip: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginBottom: 10,
+  },
+  scanChipText: { color: colors.text, fontVariant: ['tabular-nums'] },
+  runningRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
+  answerText: { color: colors.text, fontSize: 16, lineHeight: 23, marginBottom: 10 },
+  thinkingText: {
+    color: colors.textDim,
+    fontStyle: 'italic',
+    fontSize: 13,
+    marginBottom: 10,
+  },
+  toolCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  toolCardError: { borderColor: colors.danger },
+  toolTitle: { color: colors.accent, fontWeight: '600', marginBottom: 4 },
+  toolBody: { color: colors.textDim, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
+  errorText: { color: colors.danger, marginVertical: 8 },
+  dimText: { color: colors.textDim },
+});

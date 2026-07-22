@@ -1,17 +1,23 @@
 {
   "expo": {
-    "name": "midg-scaffold",
-    "slug": "midg-scaffold",
+    "name": "midg",
+    "slug": "midg",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
+    "userInterfaceStyle": "dark",
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.scanpower.midg",
+      "infoPlist": {
+        "NSCameraUsageDescription": "midg uses the camera to scan 1D barcodes."
+      }
     },
     "android": {
+      "package": "com.scanpower.midg",
+      "permissions": ["android.permission.CAMERA"],
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#101418",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -20,6 +26,16 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-secure-store",
+      "expo-sharing",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "midg uses the camera to scan 1D barcodes."
+        }
+      ]
+    ]
   }
 }
