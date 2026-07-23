@@ -11,7 +11,7 @@ import {
   View,
 } from 'react-native';
 import { AppSettings, McpAuthType, McpOAuthConfig, McpServerConfig } from '../types';
-import { connectMcpServer, disconnectMcpServer, getOAuthStatus, OAuthStatus } from '../lib/mcpOAuth';
+import { connectMcpServer, deriveBaseUrl, disconnectMcpServer, getOAuthStatus, OAuthStatus } from '../lib/mcpOAuth';
 import { colors } from '../ui/theme';
 
 const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'];
@@ -173,6 +173,25 @@ function McpServerCard({
   const updateOAuth = (patch: Partial<McpOAuthConfig>) => {
     onUpdate({ oauth: { ...(server.oauth ?? EMPTY_OAUTH), ...patch } });
   };
+
+  // Default the authorization/token URLs to the MCP server's base URL when
+  // switching to OAuth (or when the server URL changes) and those fields are
+  // still empty. Only fires on those transitions, so it never fights a user
+  // who's already typed something into the fields.
+  useEffect(() => {
+    if (server.authType !== 'oauth') return;
+    const base = deriveBaseUrl(server.url);
+    if (!base) return;
+    const authEmpty = !server.oauth?.authorizationEndpoint;
+    const tokenEmpty = !server.oauth?.tokenEndpoint;
+    if (authEmpty || tokenEmpty) {
+      updateOAuth({
+        authorizationEndpoint: authEmpty ? base : server.oauth?.authorizationEndpoint,
+        tokenEndpoint: tokenEmpty ? base : server.oauth?.tokenEndpoint,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server.authType, server.url]);
 
   const handleConnect = async () => {
     setConnecting(true);

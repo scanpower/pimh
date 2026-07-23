@@ -17,8 +17,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
       enabled: false,
       authType: 'oauth',
       oauth: {
-        authorizationEndpoint: '',
-        tokenEndpoint: '',
+        authorizationEndpoint: 'https://mcp.scanpower.com',
+        tokenEndpoint: 'https://mcp.scanpower.com',
         clientId: '',
         scopes: [],
       },

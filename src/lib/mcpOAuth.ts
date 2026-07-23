@@ -12,6 +12,12 @@ export interface OAuthStatus {
   expiresAt?: number;
 }
 
+/** Extract scheme://host[:port] from a URL, dropping any path/query/fragment. */
+export function deriveBaseUrl(url: string): string {
+  const match = url.trim().match(/^([a-zA-Z][a-zA-Z\d+.-]*:\/\/[^/?#]+)/);
+  return match ? match[1] : '';
+}
+
 function toDiscovery(oauth: McpOAuthConfig) {
   return {
     authorizationEndpoint: oauth.authorizationEndpoint,

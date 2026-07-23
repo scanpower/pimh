@@ -1,7 +1,10 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   KeyboardAvoidingView,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
   Platform,
   ScrollView,
   StyleSheet,
@@ -95,57 +98,89 @@ export default function ScanScreen({ apiKey, settings, contexts }: Props) {
     startRun({ data: code, type: 'manual', timestamp: Date.now() });
   };
 
+  // Collapse the camera + manual-entry area once the results list scrolls past
+  // a small threshold, and restore it once scrolled back near the top.
+  const [topHeight, setTopHeight] = useState(0);
+  const [topCollapsed, setTopCollapsed] = useState(false);
+  const collapseAnim = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    Animated.timing(collapseAnim, {
+      toValue: topCollapsed ? 0 : 1,
+      duration: 220,
+      useNativeDriver: false,
+    }).start();
+  }, [topCollapsed, collapseAnim]);
+
+  const handleResultsScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      const y = e.nativeEvent.contentOffset.y;
+      if (y > 24 && !topCollapsed) setTopCollapsed(true);
+      else if (y <= 4 && topCollapsed) setTopCollapsed(false);
+    },
+    [topCollapsed],
+  );
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
-      <View style={styles.cameraBox}>
-        {permission?.granted ? (
-          scanning ? (
-            <CameraView
-              style={StyleSheet.absoluteFill}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }}
-              onBarcodeScanned={onBarcodeScanned}
+      <Animated.View
+        style={{
+          height: topHeight ? collapseAnim.interpolate({ inputRange: [0, 1], outputRange: [0, topHeight] }) : undefined,
+          overflow: 'hidden',
+        }}
+      >
+        <View onLayout={(e) => { if (!topHeight) setTopHeight(e.nativeEvent.layout.height); }}>
+          <View style={styles.cameraBox}>
+            {permission?.granted ? (
+              scanning ? (
+                <CameraView
+                  style={StyleSheet.absoluteFill}
+                  facing="back"
+                  barcodeScannerSettings={{ barcodeTypes: [...BARCODE_TYPES] }}
+                  onBarcodeScanned={onBarcodeScanned}
+                />
+              ) : (
+                <View style={styles.cameraPlaceholder}>
+                  <TouchableOpacity style={styles.primaryButton} onPress={() => setScanning(true)}>
+                    <Text style={styles.primaryButtonText}>Scan again</Text>
+                  </TouchableOpacity>
+                </View>
+              )
+            ) : (
+              <View style={styles.cameraPlaceholder}>
+                <Text style={styles.dimText}>Camera access is needed to scan barcodes.</Text>
+                <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
+                  <Text style={styles.primaryButtonText}>Grant camera access</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+            {scanning && permission?.granted && (
+              <View pointerEvents="none" style={styles.reticle} />
+            )}
+          </View>
+
+          <View style={styles.manualRow}>
+            <TextInput
+              style={styles.input}
+              placeholder="Or type a barcode…"
+              placeholderTextColor={colors.textDim}
+              value={manualCode}
+              onChangeText={setManualCode}
+              onSubmitEditing={submitManual}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="numbers-and-punctuation"
+              returnKeyType="go"
             />
-          ) : (
-            <View style={styles.cameraPlaceholder}>
-              <TouchableOpacity style={styles.primaryButton} onPress={() => setScanning(true)}>
-                <Text style={styles.primaryButtonText}>Scan again</Text>
-              </TouchableOpacity>
-            </View>
-          )
-        ) : (
-          <View style={styles.cameraPlaceholder}>
-            <Text style={styles.dimText}>Camera access is needed to scan barcodes.</Text>
-            <TouchableOpacity style={styles.primaryButton} onPress={requestPermission}>
-              <Text style={styles.primaryButtonText}>Grant camera access</Text>
+            <TouchableOpacity style={styles.primaryButton} onPress={submitManual}>
+              <Text style={styles.primaryButtonText}>Go</Text>
             </TouchableOpacity>
           </View>
-        )}
-        {scanning && permission?.granted && (
-          <View pointerEvents="none" style={styles.reticle} />
-        )}
-      </View>
-
-      <View style={styles.manualRow}>
-        <TextInput
-          style={styles.input}
-          placeholder="Or type a barcode…"
-          placeholderTextColor={colors.textDim}
-          value={manualCode}
-          onChangeText={setManualCode}
-          onSubmitEditing={submitManual}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="numbers-and-punctuation"
-          returnKeyType="go"
-        />
-        <TouchableOpacity style={styles.primaryButton} onPress={submitManual}>
-          <Text style={styles.primaryButtonText}>Go</Text>
-        </TouchableOpacity>
-      </View>
+        </View>
+      </Animated.View>
 
       <View style={styles.contextBanner}>
         <Text style={styles.dimText} numberOfLines={1}>
@@ -154,7 +189,12 @@ export default function ScanScreen({ apiKey, settings, contexts }: Props) {
         </Text>
       </View>
 
-      <ScrollView style={styles.results} contentContainerStyle={{ paddingBottom: 24 }}>
+      <ScrollView
+        style={styles.results}
+        contentContainerStyle={{ paddingBottom: 24 }}
+        onScroll={handleResultsScroll}
+        scrollEventThrottle={16}
+      >
         {lastScan && (
           <View style={styles.scanChip}>
             <Text style={styles.scanChipText}>
@@ -224,7 +264,7 @@ export default function ScanScreen({ apiKey, settings, contexts }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   cameraBox: {
-    height: 240,
+    height: 204, // 15% smaller than the original 240
     backgroundColor: '#000',
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
