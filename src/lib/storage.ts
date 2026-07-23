@@ -1,10 +1,11 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { AppSettings, ContextNote } from '../types';
+import { AppSettings, ContextNote, McpServerConfig, StoredOAuthTokens } from '../types';
 
 const CONTEXTS_KEY = 'midg.contexts.v1';
 const SETTINGS_KEY = 'midg.settings.v1';
 const API_KEY_KEY = 'midg.anthropic_api_key';
+const OAUTH_KEY_PREFIX = 'midg.mcp_oauth.';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   model: 'claude-opus-4-8',
@@ -13,11 +14,30 @@ export const DEFAULT_SETTINGS: AppSettings = {
       id: 'scanpower',
       name: 'scanpower',
       url: 'https://mcp.scanpower.com/mcp',
-      authorizationToken: '',
       enabled: false,
+      authType: 'oauth',
+      oauth: {
+        authorizationEndpoint: '',
+        tokenEndpoint: '',
+        clientId: '',
+        scopes: [],
+      },
     },
   ],
 };
+
+/** Backfill fields for MCP server configs saved before OAuth support existed. */
+function normalizeServer(s: any): McpServerConfig {
+  return {
+    id: s.id,
+    name: s.name,
+    url: s.url,
+    enabled: !!s.enabled,
+    authType: s.authType ?? (s.authorizationToken ? 'token' : 'none'),
+    authorizationToken: s.authorizationToken ?? '',
+    oauth: s.oauth,
+  };
+}
 
 export const DEFAULT_CONTEXT: ContextNote = {
   id: 'default-lookup',
@@ -50,7 +70,11 @@ export async function loadSettings(): Promise<AppSettings> {
   const raw = await AsyncStorage.getItem(SETTINGS_KEY);
   if (!raw) return DEFAULT_SETTINGS;
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    const parsed = { ...DEFAULT_SETTINGS, ...JSON.parse(raw) };
+    return {
+      ...parsed,
+      mcpServers: Array.isArray(parsed.mcpServers) ? parsed.mcpServers.map(normalizeServer) : [],
+    };
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -67,6 +91,29 @@ export async function loadApiKey(): Promise<string> {
 export async function saveApiKey(key: string): Promise<void> {
   if (key) await SecureStore.setItemAsync(API_KEY_KEY, key);
   else await SecureStore.deleteItemAsync(API_KEY_KEY);
+}
+
+function oauthKey(serverId: string): string {
+  return `${OAUTH_KEY_PREFIX}${serverId.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+}
+
+/** MCP OAuth tokens live in SecureStore only — never written to the AsyncStorage settings blob. */
+export async function loadOAuthTokens(serverId: string): Promise<StoredOAuthTokens | null> {
+  const raw = await SecureStore.getItemAsync(oauthKey(serverId));
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+export async function saveOAuthTokens(serverId: string, tokens: StoredOAuthTokens): Promise<void> {
+  await SecureStore.setItemAsync(oauthKey(serverId), JSON.stringify(tokens));
+}
+
+export async function clearOAuthTokens(serverId: string): Promise<void> {
+  await SecureStore.deleteItemAsync(oauthKey(serverId));
 }
 
 /** Parse imported context notes. Accepts a JSON array of notes or a single note object. */

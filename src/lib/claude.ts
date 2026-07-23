@@ -1,4 +1,5 @@
-import { AgentBlock, AppSettings, ContextNote, ScanEvent } from '../types';
+import { AgentBlock, AppSettings, ContextNote, McpServerConfig, ScanEvent } from '../types';
+import { getValidAccessToken } from './mcpOAuth';
 
 const MAX_CONTINUATIONS = 5;
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -6,6 +7,22 @@ const ANTHROPIC_VERSION = '2023-06-01';
 
 export interface RunCallbacks {
   onBlocks: (blocks: AgentBlock[]) => void;
+}
+
+/**
+ * Resolve the bearer token to send with an MCP server, per its auth type.
+ * OAuth servers return null when not yet connected (or refresh failed) —
+ * callers must exclude those from the request rather than sending no token.
+ */
+async function resolveServerToken(server: McpServerConfig): Promise<string | null> {
+  switch (server.authType) {
+    case 'oauth':
+      return getValidAccessToken(server);
+    case 'token':
+      return server.authorizationToken || null;
+    default:
+      return null;
+  }
 }
 
 function contentToBlocks(content: any[]): AgentBlock[] {
@@ -58,16 +75,28 @@ export async function runScan(
   scan: ScanEvent,
   callbacks: RunCallbacks,
 ): Promise<{ blocks: AgentBlock[]; stopReason: string }> {
-  const enabledServers = settings.mcpServers.filter((s) => s.enabled && s.url);
-  const mcpServers = enabledServers.map((s) => ({
+  const candidates = settings.mcpServers.filter((s) => s.enabled && s.url);
+  const resolved = await Promise.all(
+    candidates.map(async (s) => ({ server: s, token: await resolveServerToken(s) })),
+  );
+
+  const notConnected = resolved.filter((r) => r.server.authType === 'oauth' && r.token === null);
+  const usable = resolved.filter((r) => !(r.server.authType === 'oauth' && r.token === null));
+
+  const mcpServers = usable.map(({ server: s, token }) => ({
     type: 'url' as const,
     url: s.url,
     name: s.name,
-    ...(s.authorizationToken ? { authorization_token: s.authorizationToken } : {}),
+    ...(token ? { authorization_token: token } : {}),
   }));
-  const mcpTools = enabledServers.map((s) => ({
+  const mcpTools = usable.map(({ server: s }) => ({
     type: 'mcp_toolset' as const,
     mcp_server_name: s.name,
+  }));
+
+  const preflightWarnings: AgentBlock[] = notConnected.map(({ server: s }) => ({
+    kind: 'warning',
+    text: `${s.name} is enabled but not connected — go to Settings and tap Connect.`,
   }));
 
   const system =
@@ -101,7 +130,9 @@ export async function runScan(
     baseBody.tools = mcpTools;
   }
 
-  const allBlocks: AgentBlock[] = [];
+  const allBlocks: AgentBlock[] = [...preflightWarnings];
+  if (allBlocks.length > 0) callbacks.onBlocks([...allBlocks]);
+
   let response: any;
   let continuations = 0;
 

@@ -203,6 +203,12 @@ export default function ScanScreen({ apiKey, settings, contexts }: Props) {
                   </Text>
                 </View>
               );
+            case 'warning':
+              return (
+                <View key={i} style={styles.warningCard}>
+                  <Text style={styles.warningText}>⚠ {block.text}</Text>
+                </View>
+              );
           }
         })}
         {run.status === 'idle' && !lastScan && (
@@ -294,6 +300,15 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   toolCardError: { borderColor: colors.danger },
+  warningCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.warning,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  warningText: { color: colors.warning, fontSize: 13 },
   toolTitle: { color: colors.accent, fontWeight: '600', marginBottom: 4 },
   toolBody: { color: colors.textDim, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   errorText: { color: colors.danger, marginVertical: 8 },

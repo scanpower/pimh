@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -9,10 +10,24 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { AppSettings, McpServerConfig } from '../types';
+import { AppSettings, McpAuthType, McpOAuthConfig, McpServerConfig } from '../types';
+import { connectMcpServer, disconnectMcpServer, getOAuthStatus, OAuthStatus } from '../lib/mcpOAuth';
 import { colors } from '../ui/theme';
 
 const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'];
+
+const AUTH_TYPES: { id: McpAuthType; label: string }[] = [
+  { id: 'none', label: 'None' },
+  { id: 'token', label: 'Static token' },
+  { id: 'oauth', label: 'OAuth' },
+];
+
+const EMPTY_OAUTH: McpOAuthConfig = {
+  authorizationEndpoint: '',
+  tokenEndpoint: '',
+  clientId: '',
+  scopes: [],
+};
 
 interface Props {
   apiKey: string;
@@ -38,7 +53,7 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
       ...settings,
       mcpServers: [
         ...settings.mcpServers,
-        { id, name: `server-${settings.mcpServers.length + 1}`, url: '', authorizationToken: '', enabled: false },
+        { id, name: `server-${settings.mcpServers.length + 1}`, url: '', enabled: false, authType: 'none' },
       ],
     });
   };
@@ -49,11 +64,13 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
       {
         text: 'Remove',
         style: 'destructive',
-        onPress: () =>
+        onPress: () => {
+          if (server.authType === 'oauth') disconnectMcpServer(server.id);
           onSettingsChange({
             ...settings,
             mcpServers: settings.mcpServers.filter((s) => s.id !== server.id),
-          }),
+          });
+        },
       },
     ]);
   };
@@ -110,57 +127,206 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
         <Text style={styles.sectionTitle}>MCP tool connections</Text>
         <Text style={styles.helpText}>
           Enabled servers are attached to every scan via the Claude API MCP connector, so Claude can call
-          their tools (e.g. ScanPower inventory and listing tools). Most hosted MCP servers need an OAuth
-          bearer token, not a plain API key.
+          their tools (e.g. ScanPower inventory and listing tools). Most hosted MCP servers require OAuth
+          — tap Connect to sign in; the token is refreshed automatically and stored in the device Keychain.
         </Text>
         {settings.mcpServers.map((server) => (
-          <View key={server.id} style={styles.serverCard}>
-            <View style={styles.serverHeader}>
-              <TextInput
-                style={[styles.input, styles.serverName]}
-                value={server.name}
-                onChangeText={(name) =>
-                  updateServer(server.id, { name: name.replace(/[^a-zA-Z0-9_-]/g, '-') })
-                }
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Switch
-                value={server.enabled}
-                onValueChange={(enabled) => updateServer(server.id, { enabled })}
-                trackColor={{ true: colors.accent }}
-              />
-            </View>
-            <TextInput
-              style={styles.input}
-              placeholder="https://example.com/mcp"
-              placeholderTextColor={colors.textDim}
-              value={server.url}
-              onChangeText={(url) => updateServer(server.id, { url: url.trim() })}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="url"
-            />
-            <TextInput
-              style={styles.input}
-              placeholder="Authorization token (optional)"
-              placeholderTextColor={colors.textDim}
-              value={server.authorizationToken ?? ''}
-              onChangeText={(authorizationToken) => updateServer(server.id, { authorizationToken })}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            <TouchableOpacity onPress={() => removeServer(server)}>
-              <Text style={[styles.linkText, { color: colors.danger }]}>Remove server</Text>
-            </TouchableOpacity>
-          </View>
+          <McpServerCard
+            key={server.id}
+            server={server}
+            onUpdate={(patch) => updateServer(server.id, patch)}
+            onRemove={() => removeServer(server)}
+          />
         ))}
         <TouchableOpacity style={[styles.secondaryButton, { marginTop: 8 }]} onPress={addServer}>
           <Text style={styles.secondaryButtonText}>+ Add MCP server</Text>
         </TouchableOpacity>
       </View>
     </ScrollView>
+  );
+}
+
+function McpServerCard({
+  server,
+  onUpdate,
+  onRemove,
+}: {
+  server: McpServerConfig;
+  onUpdate: (patch: Partial<McpServerConfig>) => void;
+  onRemove: () => void;
+}) {
+  const [status, setStatus] = useState<OAuthStatus>({ connected: false });
+  const [statusLoaded, setStatusLoaded] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+
+  const refreshStatus = useCallback(async () => {
+    if (server.authType !== 'oauth') return;
+    const s = await getOAuthStatus(server.id);
+    setStatus(s);
+    setStatusLoaded(true);
+  }, [server.authType, server.id]);
+
+  useEffect(() => {
+    refreshStatus();
+  }, [refreshStatus]);
+
+  const updateOAuth = (patch: Partial<McpOAuthConfig>) => {
+    onUpdate({ oauth: { ...(server.oauth ?? EMPTY_OAUTH), ...patch } });
+  };
+
+  const handleConnect = async () => {
+    setConnecting(true);
+    try {
+      await connectMcpServer(server);
+      await refreshStatus();
+      Alert.alert('Connected', `${server.name} is now connected.`);
+    } catch (e: any) {
+      Alert.alert('Connection failed', e?.message ?? String(e));
+    } finally {
+      setConnecting(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    await disconnectMcpServer(server.id);
+    await refreshStatus();
+  };
+
+  return (
+    <View style={styles.serverCard}>
+      <View style={styles.serverHeader}>
+        <TextInput
+          style={[styles.input, styles.serverName]}
+          value={server.name}
+          onChangeText={(name) => onUpdate({ name: name.replace(/[^a-zA-Z0-9_-]/g, '-') })}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <Switch
+          value={server.enabled}
+          onValueChange={(enabled) => onUpdate({ enabled })}
+          trackColor={{ true: colors.accent }}
+        />
+      </View>
+      <TextInput
+        style={styles.input}
+        placeholder="https://example.com/mcp"
+        placeholderTextColor={colors.textDim}
+        value={server.url}
+        onChangeText={(url) => onUpdate({ url: url.trim() })}
+        autoCapitalize="none"
+        autoCorrect={false}
+        keyboardType="url"
+      />
+
+      <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+        {AUTH_TYPES.map((t) => (
+          <TouchableOpacity
+            key={t.id}
+            style={[styles.chip, server.authType === t.id && styles.chipActive]}
+            onPress={() => onUpdate({ authType: t.id })}
+          >
+            <Text style={server.authType === t.id ? styles.chipTextActive : styles.chipText}>{t.label}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+
+      {server.authType === 'token' && (
+        <TextInput
+          style={styles.input}
+          placeholder="Authorization token"
+          placeholderTextColor={colors.textDim}
+          value={server.authorizationToken ?? ''}
+          onChangeText={(authorizationToken) => onUpdate({ authorizationToken })}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      )}
+
+      {server.authType === 'oauth' && (
+        <View>
+          <TextInput
+            style={styles.input}
+            placeholder="Authorization URL"
+            placeholderTextColor={colors.textDim}
+            value={server.oauth?.authorizationEndpoint ?? ''}
+            onChangeText={(v) => updateOAuth({ authorizationEndpoint: v.trim() })}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Token URL"
+            placeholderTextColor={colors.textDim}
+            value={server.oauth?.tokenEndpoint ?? ''}
+            onChangeText={(v) => updateOAuth({ tokenEndpoint: v.trim() })}
+            autoCapitalize="none"
+            autoCorrect={false}
+            keyboardType="url"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Client ID"
+            placeholderTextColor={colors.textDim}
+            value={server.oauth?.clientId ?? ''}
+            onChangeText={(v) => updateOAuth({ clientId: v.trim() })}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Client secret (optional — most mobile OAuth doesn't need one)"
+            placeholderTextColor={colors.textDim}
+            value={server.oauth?.clientSecret ?? ''}
+            onChangeText={(v) => updateOAuth({ clientSecret: v })}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Scopes (space-separated, optional)"
+            placeholderTextColor={colors.textDim}
+            value={(server.oauth?.scopes ?? []).join(' ')}
+            onChangeText={(v) => updateOAuth({ scopes: v.split(/\s+/).filter(Boolean) })}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+
+          <View style={styles.statusRow}>
+            <View style={[styles.statusDot, status.connected ? styles.statusDotOn : styles.statusDotOff]} />
+            <Text style={styles.dimText}>
+              {!statusLoaded ? 'Checking…' : status.connected ? 'Connected' : 'Not connected'}
+            </Text>
+          </View>
+
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <TouchableOpacity
+              style={[styles.primaryButton, { flex: 1 }]}
+              onPress={handleConnect}
+              disabled={connecting}
+            >
+              {connecting ? (
+                <ActivityIndicator color={colors.accentText} />
+              ) : (
+                <Text style={styles.primaryButtonText}>{status.connected ? 'Reconnect' : 'Connect'}</Text>
+              )}
+            </TouchableOpacity>
+            {status.connected && (
+              <TouchableOpacity style={styles.secondaryButton} onPress={handleDisconnect}>
+                <Text style={styles.secondaryButtonText}>Disconnect</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
+      <TouchableOpacity onPress={onRemove} style={{ marginTop: 8 }}>
+        <Text style={[styles.linkText, { color: colors.danger }]}>Remove server</Text>
+      </TouchableOpacity>
+    </View>
   );
 }
 
@@ -214,7 +380,12 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 10,
   },
-  serverHeader: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  serverName: { flex: 1 },
+  serverHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 8 },
+  serverName: { flex: 1, marginBottom: 0 },
   linkText: { color: colors.accent, fontSize: 13 },
+  statusRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  statusDotOn: { backgroundColor: colors.success },
+  statusDotOff: { backgroundColor: colors.textDim },
+  dimText: { color: colors.textDim, fontSize: 12 },
 });

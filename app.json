@@ -3,6 +3,7 @@
     "name": "midg",
     "slug": "midg",
     "version": "1.0.0",
+    "scheme": "midg",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -15,7 +16,9 @@
     },
     "android": {
       "package": "com.scanpower.midg",
-      "permissions": ["android.permission.CAMERA"],
+      "permissions": [
+        "android.permission.CAMERA"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#101418",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -29,13 +32,13 @@
     },
     "plugins": [
       "expo-secure-store",
-      "expo-sharing",
       [
         "expo-camera",
         {
           "cameraPermission": "midg uses the camera to scan 1D barcodes."
         }
-      ]
+      ],
+      "expo-web-browser"
     ]
   }
 }
