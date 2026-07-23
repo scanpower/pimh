@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   Alert,
   FlatList,
@@ -31,6 +31,12 @@ interface Draft {
 
 export default function ContextsScreen({ contexts, onChange }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null);
+
+  // Memory always sorts to the top of the list, regardless of storage order.
+  const sortedContexts = useMemo(
+    () => [...contexts].sort((a, b) => Number(!!b.isMemory) - Number(!!a.isMemory)),
+    [contexts],
+  );
 
   const setActive = (id: string) => {
     onChange(contexts.map((c) => ({ ...c, active: c.id === id })));
@@ -158,7 +164,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
       </View>
 
       <FlatList
-        data={contexts}
+        data={sortedContexts}
         keyExtractor={(c) => c.id}
         contentContainerStyle={{ padding: 12, gap: 10 }}
         ListEmptyComponent={
