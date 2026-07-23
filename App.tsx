@@ -105,7 +105,7 @@ export default function App() {
         <Text style={styles.headerTitle}>midg</Text>
         <View style={styles.headerSubRow}>
           <Text style={styles.headerSub}>scan → context → </Text>
-          <ShimmerText active={claudeRunning} style={styles.headerSub}>
+          <ShimmerText active={claudeRunning} style={[styles.headerSub, styles.headerSubClaude]}>
             Claude
           </ShimmerText>
         </View>
@@ -157,6 +157,7 @@ const styles = StyleSheet.create({
   headerTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
   headerSubRow: { flexDirection: 'row', alignItems: 'baseline' },
   headerSub: { color: colors.textDim, fontSize: 12 },
+  headerSubClaude: { color: colors.claude, fontWeight: '600' },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
