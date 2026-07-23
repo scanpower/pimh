@@ -54,7 +54,11 @@ const CHOOSE_LINE_RE = /^choose:\s*(.+)$/i;
 const SIGNAL_INSTRUCTION =
   '\n\nYou may end your reply with special signal lines (each alone on its own line, at the very end):\n' +
   '- "MEMORY: <fact>" — a concise, durable fact worth remembering for future scans (e.g. a product ' +
-  'identifier and its key attributes). Omit if there is nothing new and reusable to remember.\n' +
+  'identifier and its key attributes). Whenever a tool call returns identifying details about the scanned ' +
+  'item — SKU, ASIN, UPC, product name, quantity, location/bin, price, condition, or similar — you MUST ' +
+  'include one MEMORY line per distinct fact worth keeping, even if the answer already states it in prose. ' +
+  'Skip a fact only if it is already listed verbatim in "Known context from previous scans" below, or if ' +
+  'this scan used no tools and produced nothing new and reusable.\n' +
   '- "ASK: <question>" — if you need the user to type a short answer before you can finish (e.g. a ' +
   'quantity or a clarification), ask exactly one question this way instead of guessing.\n' +
   '- "CHOOSE: <question> | <option 1> | <option 2> | ..." — if the user needs to pick from a small set ' +
