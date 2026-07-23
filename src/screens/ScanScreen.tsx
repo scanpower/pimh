@@ -18,7 +18,7 @@ import Markdown from 'react-native-markdown-display';
 import { AgentRun, AppSettings, ContextNote, ScanEvent } from '../types';
 import { runScan } from '../lib/claude';
 import { colors } from '../ui/theme';
-import { markdownItInstance, markdownStyles } from '../ui/markdown';
+import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
 
 // 1D symbologies only, per app requirements.
 const BARCODE_TYPES = [
@@ -229,7 +229,7 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
             case 'text':
               return (
                 <View key={i} style={styles.answerBlock}>
-                  <Markdown style={markdownStyles} markdownit={markdownItInstance}>
+                  <Markdown style={markdownStyles} markdownit={markdownItInstance} rules={markdownRules}>
                     {block.text}
                   </Markdown>
                 </View>

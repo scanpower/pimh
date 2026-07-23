@@ -1,5 +1,7 @@
+import React from 'react';
 import { Platform } from 'react-native';
-import { MarkdownIt } from 'react-native-markdown-display';
+import FitImage from 'react-native-fit-image';
+import { MarkdownIt, RenderRules } from 'react-native-markdown-display';
 import { colors } from './theme';
 
 // linkify is off by default in markdown-it, but we pin it explicitly rather
@@ -10,6 +12,27 @@ import { colors } from './theme';
 // Claude already emits proper [text](url) links — so keep the vulnerable
 // code path unreachable rather than just noting the risk.
 export const markdownItInstance = MarkdownIt({ typographer: true, linkify: false });
+
+// Override just the `image` rule: the library's default builds a props
+// object that includes `key` and spreads it into <FitImage {...props} />,
+// which React 19 warns on ("key must be passed directly to JSX, not via
+// spread"). Same behavior, `key` passed as a real JSX attribute instead.
+export const markdownRules: RenderRules = {
+  image: (node, _children, _parent, styles, allowedImageHandlers, defaultImageHandler) => {
+    const { src, alt } = node.attributes;
+    const show = allowedImageHandlers.some((handler) => src.toLowerCase().startsWith(handler.toLowerCase()));
+    if (!show && !defaultImageHandler) return null;
+    return (
+      <FitImage
+        key={node.key}
+        indicator
+        style={styles._VIEW_SAFE_image}
+        source={{ uri: show ? src : `${defaultImageHandler}${src}` }}
+        {...(alt ? { accessible: true, accessibilityLabel: alt } : {})}
+      />
+    );
+  },
+};
 
 const monoFont = Platform.select({ ios: 'Menlo', android: 'monospace', default: 'monospace' });
 

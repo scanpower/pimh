@@ -17,6 +17,7 @@
     "expo-web-browser": "~15.0.11",
     "react": "19.1.0",
     "react-native": "0.81.5",
+    "react-native-fit-image": "^1.5.5",
     "react-native-markdown-display": "^7.0.2"
   },
   "devDependencies": {
