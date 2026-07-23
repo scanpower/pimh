@@ -275,7 +275,11 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Text style={styles.modalTitle}>{draft?.id ? 'Edit context' : 'New context'}</Text>
-          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            style={{ flex: 1 }}
+            keyboardShouldPersistTaps="handled"
+            automaticallyAdjustKeyboardInsets
+          >
             <TextInput
               style={styles.input}
               placeholder="Name"
@@ -418,7 +422,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     color: colors.text,
   },
-  multiline: { minHeight: 160 },
+  // Bounded height so the field scrolls internally once text overflows it, instead of growing
+  // unbounded — an unbounded field can fill the whole screen above the keyboard, and a drag
+  // started inside it gets captured as text selection rather than scrolling the outer form.
+  multiline: { minHeight: 160, maxHeight: 260 },
   dimText: { color: colors.textDim },
   sectionLabel: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
   sectionHelp: { fontSize: 12, lineHeight: 16, marginBottom: 10 },
