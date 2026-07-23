@@ -54,7 +54,6 @@ export interface ScanEvent {
 
 export type AgentBlock =
   | { kind: 'text'; text: string }
-  | { kind: 'thinking'; text: string }
   | { kind: 'tool_use'; server: string; tool: string; input: string }
   | { kind: 'tool_result'; content: string; isError: boolean }
   | { kind: 'warning'; text: string };

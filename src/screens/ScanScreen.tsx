@@ -245,12 +245,6 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
                   </Markdown>
                 </View>
               );
-            case 'thinking':
-              return (
-                <Text key={i} style={styles.thinkingText} numberOfLines={6}>
-                  {block.text}
-                </Text>
-              );
             case 'tool_use':
               return (
                 <ToolLine
@@ -394,12 +388,6 @@ const styles = StyleSheet.create({
   scanChipText: { color: colors.text, fontVariant: ['tabular-nums'] },
   runningRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
   answerBlock: { marginBottom: 10 },
-  thinkingText: {
-    color: colors.textDim,
-    fontStyle: 'italic',
-    fontSize: 13,
-    marginBottom: 10,
-  },
   toolCard: {
     backgroundColor: colors.surface,
     borderColor: colors.border,

@@ -32,9 +32,9 @@ function contentToBlocks(content: any[]): AgentBlock[] {
       case 'text':
         blocks.push({ kind: 'text', text: block.text });
         break;
-      case 'thinking':
-        if (block.thinking) blocks.push({ kind: 'thinking', text: block.thinking });
-        break;
+      // 'thinking' blocks are intentionally not surfaced — adaptive thinking
+      // stays enabled in the request (it improves response quality), but the
+      // reasoning itself is never shown in the app UI.
       case 'mcp_tool_use':
         blocks.push({
           kind: 'tool_use',
