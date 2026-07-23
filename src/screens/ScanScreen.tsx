@@ -100,18 +100,12 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
     startRun({ data: code, type: 'manual', timestamp: Date.now() });
   };
 
-  // Parent bumps resetSignal when the Scan tab is tapped while already active.
-  useEffect(() => {
-    if (resetSignal === undefined) return;
-    setScanning(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resetSignal]);
-
   // Collapse the camera + manual-entry area once the results list scrolls past
   // a small threshold, and restore it once scrolled back near the top.
   const [topHeight, setTopHeight] = useState(0);
   const [topCollapsed, setTopCollapsed] = useState(false);
   const collapseAnim = useRef(new Animated.Value(1)).current;
+  const resultsScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
     Animated.timing(collapseAnim, {
@@ -120,6 +114,15 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
       useNativeDriver: false,
     }).start();
   }, [topCollapsed, collapseAnim]);
+
+  // Parent bumps resetSignal when the Scan tab is tapped while already active.
+  useEffect(() => {
+    if (resetSignal === undefined) return;
+    setScanning(true);
+    setTopCollapsed(false);
+    resultsScrollRef.current?.scrollTo({ y: 0, animated: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   const handleResultsScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
@@ -199,6 +202,7 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
       </View>
 
       <ScrollView
+        ref={resultsScrollRef}
         style={styles.results}
         contentContainerStyle={{ paddingBottom: 24 }}
         onScroll={handleResultsScroll}
