@@ -1,4 +1,4 @@
-import { AgentBlock, AppSettings, ContextNote, McpServerConfig, ScanEvent } from '../types';
+import { AgentBlock, AppSettings, ContextNote, McpServerConfig, PendingPrompt, ScanEvent } from '../types';
 import { getValidAccessToken } from './mcpOAuth';
 
 const MAX_CONTINUATIONS = 5;
@@ -7,6 +7,15 @@ const ANTHROPIC_VERSION = '2023-06-01';
 
 export interface RunCallbacks {
   onBlocks: (blocks: AgentBlock[]) => void;
+}
+
+export interface RunResult {
+  blocks: AgentBlock[];
+  stopReason: string;
+  memoryNotes: string[];
+  pendingPrompt?: PendingPrompt;
+  /** Full conversation so far — pass back into continueScan() to answer a pendingPrompt. */
+  messages: any[];
 }
 
 /**
@@ -25,19 +34,32 @@ async function resolveServerToken(server: McpServerConfig): Promise<string | nul
   }
 }
 
+/** Replace {{fieldId}} occurrences in a context's instructions with collected prompt-field values. */
+export function substituteFields(template: string, values: Record<string, string>): string {
+  return template.replace(/\{\{(\w+)\}\}/g, (match, id) => (id in values ? values[id] : match));
+}
+
 const MEMORY_LINE_RE = /^memory:\s*(.+)$/i;
+const ASK_LINE_RE = /^ask:\s*(.+)$/i;
+const CHOOSE_LINE_RE = /^choose:\s*(.+)$/i;
 
 /**
- * Instructs Claude to end a reply with `MEMORY: <fact>` when a tool call
- * surfaced something concise and durable (an identifier, SKU, price, or
- * other attribute worth having on hand for future scans). Extracted lines
- * are stripped from the displayed text and merged into the Memory context.
+ * Tells Claude about the signal lines it can end a reply with:
+ *  - MEMORY: <fact> — a concise, durable fact worth remembering across scans.
+ *  - ASK: <question> — Claude needs a short free-text answer before it can finish.
+ *  - CHOOSE: <question> | <opt1> | <opt2> | ... — Claude needs the user to pick one of a few options.
+ * All are stripped from the displayed text and rendered by the app instead
+ * (ASK/CHOOSE as an interactive prompt; MEMORY merged into the Memory context).
  */
-const MEMORY_INSTRUCTION =
-  '\n\nIf a tool call surfaced a concise, durable fact worth remembering for future scans ' +
-  '(e.g. a product identifier/SKU and its key attributes), end your reply with one line formatted ' +
-  'exactly as "MEMORY: <fact>" — a single line, nothing else on it. Omit this line entirely if there ' +
-  'is nothing new and reusable to remember.';
+const SIGNAL_INSTRUCTION =
+  '\n\nYou may end your reply with special signal lines (each alone on its own line, at the very end):\n' +
+  '- "MEMORY: <fact>" — a concise, durable fact worth remembering for future scans (e.g. a product ' +
+  'identifier and its key attributes). Omit if there is nothing new and reusable to remember.\n' +
+  '- "ASK: <question>" — if you need the user to type a short answer before you can finish (e.g. a ' +
+  'quantity or a clarification), ask exactly one question this way instead of guessing.\n' +
+  '- "CHOOSE: <question> | <option 1> | <option 2> | ..." — if the user needs to pick from a small set ' +
+  'of options, ask this way instead of listing them in prose.\n' +
+  'Use at most one of ASK or CHOOSE per reply, only when truly needed to proceed — otherwise just answer normally.';
 
 function contentToBlocks(content: any[]): AgentBlock[] {
   const blocks: AgentBlock[] = [];
@@ -69,10 +91,20 @@ function contentToBlocks(content: any[]): AgentBlock[] {
   return blocks;
 }
 
-/** Pull "MEMORY: ..." lines out of text blocks, returning the cleaned blocks and the extracted facts. */
-function extractMemory(blocks: AgentBlock[]): { blocks: AgentBlock[]; memoryNotes: string[] } {
+/**
+ * Pull MEMORY/ASK/CHOOSE signal lines out of text blocks, returning the
+ * cleaned blocks (never shown to the user) plus the extracted facts and any
+ * pending prompt (last one wins if more than one appeared).
+ */
+function extractSignals(blocks: AgentBlock[]): {
+  blocks: AgentBlock[];
+  memoryNotes: string[];
+  pendingPrompt?: PendingPrompt;
+} {
   const memoryNotes: string[] = [];
+  let pendingPrompt: PendingPrompt | undefined;
   const cleaned: AgentBlock[] = [];
+
   for (const block of blocks) {
     if (block.kind !== 'text') {
       cleaned.push(block);
@@ -80,20 +112,38 @@ function extractMemory(blocks: AgentBlock[]): { blocks: AgentBlock[]; memoryNote
     }
     const kept: string[] = [];
     for (const line of block.text.split('\n')) {
-      const match = line.match(MEMORY_LINE_RE);
-      if (match) memoryNotes.push(match[1].trim());
-      else kept.push(line);
+      const memoryMatch = line.match(MEMORY_LINE_RE);
+      const askMatch = line.match(ASK_LINE_RE);
+      const chooseMatch = line.match(CHOOSE_LINE_RE);
+      if (memoryMatch) {
+        memoryNotes.push(memoryMatch[1].trim());
+      } else if (askMatch) {
+        pendingPrompt = { kind: 'ask', question: askMatch[1].trim() };
+      } else if (chooseMatch) {
+        const parts = chooseMatch[1]
+          .split('|')
+          .map((p) => p.trim())
+          .filter(Boolean);
+        const [question, ...options] = parts;
+        if (question && options.length > 0) {
+          pendingPrompt = { kind: 'choose', question, options };
+        }
+      } else {
+        kept.push(line);
+      }
     }
     const text = kept.join('\n').trim();
     if (text) cleaned.push({ kind: 'text', text });
   }
-  return { blocks: cleaned, memoryNotes };
+
+  return { blocks: cleaned, memoryNotes, pendingPrompt };
 }
 
 /**
- * Run a scan through Claude. The active context note's instructions become the
- * system prompt; enabled MCP servers are attached via the API's MCP connector so
- * Claude can execute tools (e.g. ScanPower) server-side.
+ * Drive one full conversation turn-loop against the Messages API, starting
+ * from `initialMessages`. Shared by runScan() (a fresh scan) and
+ * continueScan() (answering a pendingPrompt) so both go through identical
+ * system-prompt/tool/signal handling.
  *
  * Calls the Messages API directly with fetch rather than @anthropic-ai/sdk:
  * the official SDK imports Node's `node:fs` for credential-file handling, which
@@ -103,14 +153,14 @@ function extractMemory(blocks: AgentBlock[]): { blocks: AgentBlock[]; memoryNote
  * streams, so we use a plain POST and surface interim state via pause_turn
  * continuations instead of token-level streaming.
  */
-export async function runScan(
+async function runConversation(
   apiKey: string,
   settings: AppSettings,
   context: ContextNote | undefined,
   memory: ContextNote | undefined,
-  scan: ScanEvent,
+  initialMessages: any[],
   callbacks: RunCallbacks,
-): Promise<{ blocks: AgentBlock[]; stopReason: string; memoryNotes: string[] }> {
+): Promise<RunResult> {
   const candidates = settings.mcpServers.filter((s) => s.enabled && s.url);
   const resolved = await Promise.all(
     candidates.map(async (s) => ({ server: s, token: await resolveServerToken(s) })),
@@ -139,15 +189,10 @@ export async function runScan(
   const system =
     (context?.instructions ??
       'The user scanned a barcode. Identify the product or content and summarize it concisely.') +
-    MEMORY_INSTRUCTION +
+    SIGNAL_INSTRUCTION +
     (memoryText ? `\n\nKnown context from previous scans:\n${memoryText}` : '');
 
-  const messages: any[] = [
-    {
-      role: 'user',
-      content: `Scanned barcode: ${scan.data}\nSymbology: ${scan.type}\nScanned at: ${new Date(scan.timestamp).toISOString()}`,
-    },
-  ];
+  const messages: any[] = [...initialMessages];
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -171,6 +216,7 @@ export async function runScan(
 
   const allBlocks: AgentBlock[] = [...preflightWarnings];
   const memoryNotes: string[] = [];
+  let pendingPrompt: PendingPrompt | undefined;
   if (allBlocks.length > 0) callbacks.onBlocks([...allBlocks]);
 
   let response: any;
@@ -188,9 +234,14 @@ export async function runScan(
       throw new Error(message);
     }
 
-    const { blocks: newBlocks, memoryNotes: newMemoryNotes } = extractMemory(contentToBlocks(response.content));
+    const {
+      blocks: newBlocks,
+      memoryNotes: newMemoryNotes,
+      pendingPrompt: newPendingPrompt,
+    } = extractSignals(contentToBlocks(response.content));
     allBlocks.push(...newBlocks);
     memoryNotes.push(...newMemoryNotes);
+    if (newPendingPrompt) pendingPrompt = newPendingPrompt;
     callbacks.onBlocks([...allBlocks]);
 
     if (response.stop_reason === 'pause_turn' && continuations < MAX_CONTINUATIONS) {
@@ -209,5 +260,66 @@ export async function runScan(
     });
   }
 
-  return { blocks: allBlocks, stopReason: response.stop_reason ?? 'end_turn', memoryNotes };
+  // Keep the assistant's final turn in the transcript so continueScan() can append the user's answer.
+  messages.push({ role: 'assistant', content: response.content });
+
+  return {
+    blocks: allBlocks,
+    stopReason: response.stop_reason ?? 'end_turn',
+    memoryNotes,
+    pendingPrompt,
+    messages,
+  };
+}
+
+/**
+ * Run a scan through Claude. The active context note's instructions become the
+ * system prompt (with any {{fieldId}} tokens substituted from fieldValues);
+ * enabled MCP servers are attached via the API's MCP connector so Claude can
+ * execute tools (e.g. ScanPower) server-side.
+ */
+export async function runScan(
+  apiKey: string,
+  settings: AppSettings,
+  context: ContextNote | undefined,
+  memory: ContextNote | undefined,
+  scan: ScanEvent,
+  fieldValues: Record<string, string> | undefined,
+  callbacks: RunCallbacks,
+): Promise<RunResult> {
+  const resolvedContext =
+    context && fieldValues ? { ...context, instructions: substituteFields(context.instructions, fieldValues) } : context;
+
+  const fieldLines =
+    context?.promptFields && fieldValues
+      ? context.promptFields
+          .map((f) => `${f.label}: ${fieldValues[f.id] ?? ''}`)
+          .filter((line) => line.split(': ')[1])
+          .join('\n')
+      : '';
+
+  const initialMessages = [
+    {
+      role: 'user',
+      content:
+        `Scanned barcode: ${scan.data}\nSymbology: ${scan.type}\nScanned at: ${new Date(scan.timestamp).toISOString()}` +
+        (fieldLines ? `\n\nProvided details:\n${fieldLines}` : ''),
+    },
+  ];
+
+  return runConversation(apiKey, settings, resolvedContext, memory, initialMessages, callbacks);
+}
+
+/** Answer a pendingPrompt (ASK or CHOOSE) and continue the same conversation. */
+export async function continueScan(
+  apiKey: string,
+  settings: AppSettings,
+  context: ContextNote | undefined,
+  memory: ContextNote | undefined,
+  priorMessages: any[],
+  answer: string,
+  callbacks: RunCallbacks,
+): Promise<RunResult> {
+  const messages = [...priorMessages, { role: 'user', content: answer }];
+  return runConversation(apiKey, settings, context, memory, messages, callbacks);
 }

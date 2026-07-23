@@ -5,6 +5,7 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -14,7 +15,7 @@ import {
 import * as Clipboard from 'expo-clipboard';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
-import { ContextNote } from '../types';
+import { ContextNote, ContextPromptField } from '../types';
 import { parseImportedContexts } from '../lib/storage';
 import { colors } from '../ui/theme';
 
@@ -27,10 +28,27 @@ interface Draft {
   id: string | null; // null = new note
   name: string;
   instructions: string;
+  promptFields: ContextPromptField[];
+}
+
+function draftFromNote(item: ContextNote): Draft {
+  return { id: item.id, name: item.name, instructions: item.instructions, promptFields: item.promptFields ?? [] };
+}
+
+function nextFieldId(existing: string[]): string {
+  let n = existing.length + 1;
+  let id = `field_${n}`;
+  while (existing.includes(id)) {
+    n++;
+    id = `field_${n}`;
+  }
+  return id;
 }
 
 export default function ContextsScreen({ contexts, onChange }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null);
+  const editingNote = draft?.id ? contexts.find((c) => c.id === draft.id) : null;
+  const isEditingMemory = !!editingNote?.isMemory;
 
   // Memory always sorts to the top of the list, regardless of storage order.
   const sortedContexts = useMemo(
@@ -72,13 +90,16 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
     if (draft.id) {
       onChange(
         contexts.map((c) =>
-          c.id === draft.id ? { ...c, name, instructions: draft.instructions, updatedAt: now } : c,
+          c.id === draft.id
+            ? { ...c, name, instructions: draft.instructions, promptFields: draft.promptFields, updatedAt: now }
+            : c,
         ),
       );
     } else {
       const note: ContextNote = {
         id: `ctx-${now}-${Math.random().toString(36).slice(2, 8)}`,
         name,
+        promptFields: draft.promptFields,
         instructions: draft.instructions,
         // Memory always exists but is never "active" in the persona sense, so
         // check for a real active note rather than an empty list.
@@ -135,6 +156,22 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
     }
   };
 
+  const addField = () => {
+    setDraft((d) => {
+      if (!d) return d;
+      const id = nextFieldId(d.promptFields.map((f) => f.id));
+      return { ...d, promptFields: [...d.promptFields, { id, label: '', type: 'text' }] };
+    });
+  };
+
+  const updateField = (idx: number, patch: Partial<ContextPromptField>) => {
+    setDraft((d) => (d ? { ...d, promptFields: d.promptFields.map((f, i) => (i === idx ? { ...f, ...patch } : f)) } : d));
+  };
+
+  const removeField = (idx: number) => {
+    setDraft((d) => (d ? { ...d, promptFields: d.promptFields.filter((_, i) => i !== idx) } : d));
+  };
+
   const exportToClipboard = async () => {
     // Memory is app-managed and auto-repopulates — exporting it would just
     // create a confusing duplicate "Memory" note (without the flag) on import.
@@ -148,7 +185,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
       <View style={styles.toolbar}>
         <TouchableOpacity
           style={styles.primaryButton}
-          onPress={() => setDraft({ id: null, name: '', instructions: '' })}
+          onPress={() => setDraft({ id: null, name: '', instructions: '', promptFields: [] })}
         >
           <Text style={styles.primaryButtonText}>+ New</Text>
         </TouchableOpacity>
@@ -177,10 +214,10 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
             style={[styles.card, item.active && styles.cardActive]}
             onPress={() =>
               item.isMemory
-                ? setDraft({ id: item.id, name: item.name, instructions: item.instructions })
+                ? setDraft(draftFromNote(item))
                 : setActive(item.id)
             }
-            onLongPress={() => setDraft({ id: item.id, name: item.name, instructions: item.instructions })}
+            onLongPress={() => setDraft(draftFromNote(item))}
           >
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>
@@ -189,7 +226,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
               </Text>
               <View style={{ flexDirection: 'row', gap: 14 }}>
                 <TouchableOpacity
-                  onPress={() => setDraft({ id: item.id, name: item.name, instructions: item.instructions })}
+                  onPress={() => setDraft(draftFromNote(item))}
                 >
                   <Text style={styles.linkText}>Edit</Text>
                 </TouchableOpacity>
@@ -221,23 +258,79 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
           behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <Text style={styles.modalTitle}>{draft?.id ? 'Edit context' : 'New context'}</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="Name"
-            placeholderTextColor={colors.textDim}
-            value={draft?.name ?? ''}
-            onChangeText={(name) => setDraft((d) => (d ? { ...d, name } : d))}
-          />
-          <TextInput
-            style={[styles.input, styles.multiline]}
-            placeholder="Instructions for Claude — what should happen when a barcode is scanned?"
-            placeholderTextColor={colors.textDim}
-            value={draft?.instructions ?? ''}
-            onChangeText={(instructions) => setDraft((d) => (d ? { ...d, instructions } : d))}
-            multiline
-            textAlignVertical="top"
-          />
-          <View style={{ flexDirection: 'row', gap: 10 }}>
+          <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled">
+            <TextInput
+              style={styles.input}
+              placeholder="Name"
+              placeholderTextColor={colors.textDim}
+              value={draft?.name ?? ''}
+              onChangeText={(name) => setDraft((d) => (d ? { ...d, name } : d))}
+            />
+            <TextInput
+              style={[styles.input, styles.multiline, { marginTop: 12 }]}
+              placeholder="Instructions for Claude — what should happen when a barcode is scanned?"
+              placeholderTextColor={colors.textDim}
+              value={draft?.instructions ?? ''}
+              onChangeText={(instructions) => setDraft((d) => (d ? { ...d, instructions } : d))}
+              multiline
+              textAlignVertical="top"
+            />
+            {!isEditingMemory && draft && (
+              <View style={{ marginTop: 16 }}>
+                <Text style={styles.sectionLabel}>Prompt fields (optional)</Text>
+                <Text style={[styles.dimText, styles.sectionHelp]}>
+                  Collected in a quick form before a scan runs with this context active. Reference a
+                  field's value in Instructions as {'{{'}fieldId{'}}'}.
+                </Text>
+                {draft.promptFields.map((field, idx) => (
+                  <View key={field.id} style={styles.fieldRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <TextInput
+                        style={[styles.input, { flex: 1 }]}
+                        placeholder="Label"
+                        placeholderTextColor={colors.textDim}
+                        value={field.label}
+                        onChangeText={(label) => updateField(idx, { label })}
+                      />
+                      <TouchableOpacity
+                        onPress={() => updateField(idx, { type: field.type === 'select' ? 'text' : 'select' })}
+                      >
+                        <Text style={styles.linkText}>{field.type === 'select' ? 'Select' : 'Text'}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => removeField(idx)}>
+                        <Text style={[styles.linkText, { color: colors.danger }]}>Remove</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.fieldRef}>
+                      {'{{'}
+                      {field.id}
+                      {'}}'}
+                    </Text>
+                    {field.type === 'select' && (
+                      <TextInput
+                        style={[styles.input, { marginTop: 6 }]}
+                        placeholder="Options, comma separated"
+                        placeholderTextColor={colors.textDim}
+                        value={(field.options ?? []).join(', ')}
+                        onChangeText={(text) =>
+                          updateField(idx, {
+                            options: text
+                              .split(',')
+                              .map((s) => s.trim())
+                              .filter(Boolean),
+                          })
+                        }
+                      />
+                    )}
+                  </View>
+                ))}
+                <TouchableOpacity style={styles.secondaryButton} onPress={addField}>
+                  <Text style={styles.secondaryButtonText}>+ Add field</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
             <TouchableOpacity style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setDraft(null)}>
               <Text style={styles.secondaryButtonText}>Cancel</Text>
             </TouchableOpacity>
@@ -307,6 +400,17 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     color: colors.text,
   },
-  multiline: { flex: 1, minHeight: 160 },
+  multiline: { minHeight: 160 },
   dimText: { color: colors.textDim },
+  sectionLabel: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
+  sectionHelp: { fontSize: 12, lineHeight: 16, marginBottom: 10 },
+  fieldRow: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  fieldRef: { color: colors.textDim, fontSize: 11, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', marginTop: 6 },
 });

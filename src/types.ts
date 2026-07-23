@@ -1,7 +1,19 @@
+export interface ContextPromptField {
+  id: string;
+  /** Shown as the field's label in the pre-scan form. */
+  label: string;
+  type: 'text' | 'select';
+  /** For type 'select' only. */
+  options?: string[];
+}
+
 export interface ContextNote {
   id: string;
   name: string;
-  /** Instruction text sent to Claude as the system prompt when a barcode is scanned. */
+  /**
+   * Instruction text sent to Claude as the system prompt when a barcode is
+   * scanned. May reference promptFields values via {{fieldId}}.
+   */
   instructions: string;
   active: boolean;
   createdAt: number;
@@ -13,6 +25,13 @@ export interface ContextNote {
    * alongside the active context.
    */
   isMemory?: boolean;
+  /**
+   * Optional structured inputs collected from the user before a scan runs
+   * with this context active — e.g. quantity, warehouse location. Values
+   * are substituted into `instructions` via {{fieldId}} and also passed to
+   * Claude alongside the scan.
+   */
+  promptFields?: ContextPromptField[];
 }
 
 export type McpAuthType = 'none' | 'token' | 'oauth';
@@ -67,9 +86,18 @@ export type AgentBlock =
   | { kind: 'tool_result'; content: string; isError: boolean }
   | { kind: 'warning'; text: string };
 
+/** A question Claude needs answered before it can finish, parsed out of its reply. */
+export type PendingPrompt =
+  | { kind: 'ask'; question: string }
+  | { kind: 'choose'; question: string; options: string[] };
+
 export interface AgentRun {
   status: 'idle' | 'running' | 'done' | 'error';
   blocks: AgentBlock[];
   error?: string;
   stopReason?: string;
+  /** Set when Claude is waiting on a free-text answer or a choice before it can continue. */
+  pendingPrompt?: PendingPrompt;
+  /** Conversation so far — needed to continue after the user answers a pendingPrompt. */
+  messages?: any[];
 }

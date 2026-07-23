@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
+  Modal,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -15,8 +16,8 @@ import {
 } from 'react-native';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import Markdown from 'react-native-markdown-display';
-import { AgentBlock, AgentRun, AppSettings, ContextNote, ScanEvent } from '../types';
-import { runScan } from '../lib/claude';
+import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
+import { continueScan, runScan } from '../lib/claude';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
 
@@ -85,13 +86,22 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
     });
   }, []);
 
-  const startRun = useCallback(
-    async (scan: ScanEvent) => {
+  // Some contexts collect a few structured details before a scan runs (e.g. quantity,
+  // warehouse) — shown as a small form. pendingFieldForm holds the scan that's waiting on it.
+  const [pendingFieldForm, setPendingFieldForm] = useState<{ scan: ScanEvent; fields: ContextPromptField[] } | null>(
+    null,
+  );
+  const [fieldFormValues, setFieldFormValues] = useState<Record<string, string>>({});
+  const [answerText, setAnswerText] = useState('');
+
+  const runWithFields = useCallback(
+    async (scan: ScanEvent, fieldValues: Record<string, string> | undefined) => {
       if (busyRef.current) return;
       busyRef.current = true;
       setLastScan(scan);
       setScanning(false);
       setExpandedTools(new Set());
+      setAnswerText('');
 
       if (!apiKey) {
         setRun({
@@ -105,10 +115,16 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
 
       setRun({ status: 'running', blocks: [] });
       try {
-        const result = await runScan(apiKey, settings, activeContext, memoryContext, scan, {
+        const result = await runScan(apiKey, settings, activeContext, memoryContext, scan, fieldValues, {
           onBlocks: (blocks) => setRun({ status: 'running', blocks }),
         });
-        setRun({ status: 'done', blocks: result.blocks, stopReason: result.stopReason });
+        setRun({
+          status: 'done',
+          blocks: result.blocks,
+          stopReason: result.stopReason,
+          pendingPrompt: result.pendingPrompt,
+          messages: result.messages,
+        });
         mergeMemoryNotes(result.memoryNotes);
       } catch (e: any) {
         setRun({
@@ -121,6 +137,62 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
       }
     },
     [apiKey, settings, activeContext, memoryContext, mergeMemoryNotes],
+  );
+
+  const startRun = useCallback(
+    (scan: ScanEvent) => {
+      if (busyRef.current || pendingFieldForm) return;
+      if (activeContext?.promptFields && activeContext.promptFields.length > 0) {
+        setScanning(false);
+        setPendingFieldForm({ scan, fields: activeContext.promptFields });
+        setFieldFormValues({});
+        return;
+      }
+      void runWithFields(scan, undefined);
+    },
+    [activeContext, pendingFieldForm, runWithFields],
+  );
+
+  const submitFieldForm = () => {
+    if (!pendingFieldForm) return;
+    const { scan } = pendingFieldForm;
+    const values = fieldFormValues;
+    setPendingFieldForm(null);
+    void runWithFields(scan, values);
+  };
+
+  const cancelFieldForm = () => {
+    setPendingFieldForm(null);
+    setScanning(true);
+  };
+
+  const submitPromptAnswer = useCallback(
+    async (answer: string) => {
+      const trimmed = answer.trim();
+      if (!trimmed || !run.messages || busyRef.current) return;
+      busyRef.current = true;
+      setAnswerText('');
+      const priorBlocks = run.blocks;
+      setRun({ status: 'running', blocks: priorBlocks });
+      try {
+        const result = await continueScan(apiKey, settings, activeContext, memoryContext, run.messages, trimmed, {
+          onBlocks: (blocks) => setRun({ status: 'running', blocks: [...priorBlocks, ...blocks] }),
+        });
+        setRun({
+          status: 'done',
+          blocks: [...priorBlocks, ...result.blocks],
+          stopReason: result.stopReason,
+          pendingPrompt: result.pendingPrompt,
+          messages: result.messages,
+        });
+        mergeMemoryNotes(result.memoryNotes);
+      } catch (e: any) {
+        setRun({ status: 'error', blocks: priorBlocks, error: e?.message ?? String(e) });
+      } finally {
+        busyRef.current = false;
+      }
+    },
+    [run.messages, run.blocks, apiKey, settings, activeContext, memoryContext, mergeMemoryNotes],
   );
 
   const onBarcodeScanned = useCallback(
@@ -158,6 +230,7 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
     if (resetSignal === undefined) return;
     setScanning(true);
     setTopCollapsed(false);
+    setPendingFieldForm(null);
     resultsScrollRef.current?.scrollTo({ y: 0, animated: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetSignal]);
@@ -216,6 +289,7 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
   };
 
   return (
+    <>
     <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -308,6 +382,45 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
             call/result detail at the bottom — regardless of the order blocks arrived in. */}
         {indexedBlocks.filter(({ block }) => block.kind === 'warning').map(({ block, i }) => renderBlock(block, i))}
         {indexedBlocks.filter(({ block }) => block.kind === 'text').map(({ block, i }) => renderBlock(block, i))}
+        {run.pendingPrompt && (
+          <View style={styles.promptCard}>
+            <Text style={styles.promptQuestion}>{run.pendingPrompt.question}</Text>
+            {run.pendingPrompt.kind === 'choose' ? (
+              <View style={styles.promptOptions}>
+                {run.pendingPrompt.options.map((opt) => (
+                  <TouchableOpacity
+                    key={opt}
+                    style={styles.promptOptionButton}
+                    disabled={run.status === 'running'}
+                    onPress={() => submitPromptAnswer(opt)}
+                  >
+                    <Text style={styles.promptOptionText}>{opt}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.promptAnswerRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  placeholder="Type your answer…"
+                  placeholderTextColor={colors.textDim}
+                  value={answerText}
+                  onChangeText={setAnswerText}
+                  onSubmitEditing={() => submitPromptAnswer(answerText)}
+                  editable={run.status !== 'running'}
+                  returnKeyType="send"
+                />
+                <TouchableOpacity
+                  style={styles.primaryButton}
+                  disabled={run.status === 'running'}
+                  onPress={() => submitPromptAnswer(answerText)}
+                >
+                  <Text style={styles.primaryButtonText}>Send</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+        )}
         {settings.showToolCalls &&
           indexedBlocks
             .filter(({ block }) => block.kind === 'tool_use' || block.kind === 'tool_result')
@@ -319,6 +432,51 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
         )}
       </ScrollView>
     </KeyboardAvoidingView>
+
+    <Modal visible={pendingFieldForm !== null} animationType="slide" onRequestClose={cancelFieldForm}>
+      <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <Text style={styles.modalTitle}>{activeContext?.name}</Text>
+        <Text style={[styles.dimText, { marginBottom: 4 }]}>Fill in a few details before this scan runs.</Text>
+        <ScrollView style={{ flex: 1 }}>
+          {pendingFieldForm?.fields.map((field) => (
+            <View key={field.id} style={styles.fieldGroup}>
+              <Text style={styles.fieldLabel}>{field.label}</Text>
+              {field.type === 'select' ? (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+                  {(field.options ?? []).map((opt) => (
+                    <TouchableOpacity
+                      key={opt}
+                      style={[styles.chip, fieldFormValues[field.id] === opt && styles.chipActive]}
+                      onPress={() => setFieldFormValues((v) => ({ ...v, [field.id]: opt }))}
+                    >
+                      <Text style={fieldFormValues[field.id] === opt ? styles.chipTextActive : styles.chipText}>
+                        {opt}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ) : (
+                <TextInput
+                  style={styles.input}
+                  placeholderTextColor={colors.textDim}
+                  value={fieldFormValues[field.id] ?? ''}
+                  onChangeText={(v) => setFieldFormValues((prev) => ({ ...prev, [field.id]: v }))}
+                />
+              )}
+            </View>
+          ))}
+        </ScrollView>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TouchableOpacity style={[styles.secondaryButton, { flex: 1 }]} onPress={cancelFieldForm}>
+            <Text style={styles.secondaryButtonText}>Cancel</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.primaryButton, { flex: 1 }]} onPress={submitFieldForm}>
+            <Text style={styles.primaryButtonText}>Continue</Text>
+          </TouchableOpacity>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+    </>
   );
 }
 
@@ -447,4 +605,46 @@ const styles = StyleSheet.create({
   toolBody: { color: colors.textDim, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   errorText: { color: colors.danger, marginVertical: 8 },
   dimText: { color: colors.textDim },
+  promptCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderColor: colors.accent,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 10,
+  },
+  promptQuestion: { color: colors.text, fontSize: 15, marginBottom: 10 },
+  promptOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  promptOptionButton: {
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+  },
+  promptOptionText: { color: colors.accentText, fontWeight: '600' },
+  promptAnswerRow: { flexDirection: 'row', gap: 8 },
+  modal: { flex: 1, backgroundColor: colors.bg, padding: 16, paddingTop: 64, gap: 12 },
+  modalTitle: { color: colors.text, fontSize: 20, fontWeight: '700' },
+  fieldGroup: { marginBottom: 14 },
+  fieldLabel: { color: colors.text, fontSize: 14, fontWeight: '600', marginBottom: 6 },
+  chip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+  },
+  chipActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  chipText: { color: colors.text, fontSize: 13 },
+  chipTextActive: { color: colors.accentText, fontSize: 13, fontWeight: '600' },
+  secondaryButton: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  secondaryButtonText: { color: colors.text },
 });
