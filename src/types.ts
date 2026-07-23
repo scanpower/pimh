@@ -95,7 +95,9 @@ export type AgentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'tool_use'; server: string; tool: string; input: string }
   | { kind: 'tool_result'; content: string; isError: boolean }
-  | { kind: 'warning'; text: string };
+  | { kind: 'warning'; text: string }
+  /** Diagnostic record of one printContent() call — shown alongside tool results for debugging. */
+  | { kind: 'print_log'; text: string; isError: boolean };
 
 /** A question Claude needs answered before it can finish, parsed out of its reply. */
 export type PendingPrompt =

@@ -38,38 +38,66 @@ function describeTarget(printer: PrinterConfig | null): string {
   return printer ? `saved printer "${printer.name}" (${printer.url})` : 'system print picker (no default printer saved)';
 }
 
+/** Describes exactly what one printContent() call sent and where — shown in the app for debugging. */
+export interface PrintCallInfo {
+  mode: 'pdf' | 'text';
+  target: string;
+  detail: string;
+}
+
+/** Thrown by printContent() on failure; carries the call info so the caller can still display it. */
+export class PrintCallError extends Error {
+  call: PrintCallInfo;
+  constructor(message: string, call: PrintCallInfo) {
+    super(message);
+    this.call = call;
+  }
+}
+
+export interface PrintCallResult {
+  call: PrintCallInfo;
+}
+
 /**
  * Prints one piece of tool-result content to the system print dialog (expo-print / AirPrint).
  * A PDF data URI (as returned by tools like print_item_labels) is printed as an actual PDF via
  * expo-print's `uri` option; anything else is printed as plain text via its `html` option. If a
  * printer was saved via selectPrinter(), printing goes straight to it — otherwise the OS printer
  * picker opens.
+ *
+ * Returns (or, on failure, attaches to the thrown PrintCallError) a PrintCallInfo describing
+ * exactly what was sent and where — expo-print's promise can resolve successfully on iOS even
+ * when the physical printer never receives/renders the job, so this call info is the only way
+ * to confirm what the app actually attempted.
  */
-export async function printContent(content: string, printer: PrinterConfig | null): Promise<void> {
+export async function printContent(content: string, printer: PrinterConfig | null): Promise<PrintCallResult> {
   const pdfUri = extractPdfDataUri(content);
-  if (pdfUri) {
-    console.log(`[print] printing PDF (${pdfUri.length} chars, base64 payload) to ${describeTarget(printer)}`);
-    try {
-      await Print.printAsync({ uri: pdfUri, printerUrl: printer?.url ?? undefined });
-      console.log('[print] Print.printAsync({ uri }) resolved');
-    } catch (e) {
-      console.error('[print] Print.printAsync({ uri }) rejected:', e);
-      throw e;
-    }
-    return;
-  }
-  console.log(`[print] printing text (${content.length} chars) to ${describeTarget(printer)}`);
-  const html =
-    '<html><body><pre style="font-family: Menlo, monospace; font-size: 13px; ' +
-    'white-space: pre-wrap; word-wrap: break-word;">' +
-    escapeHtml(content) +
-    '</pre></body></html>';
+  const target = describeTarget(printer);
+  const call: PrintCallInfo = pdfUri
+    ? { mode: 'pdf', target, detail: `PDF data URI, ${pdfUri.length} chars (base64 payload)` }
+    : {
+        mode: 'text',
+        target,
+        detail: `${content.length} chars: ${content.slice(0, 120)}${content.length > 120 ? '…' : ''}`,
+      };
+
+  console.log(`[print] ${call.mode} → ${call.target} — ${call.detail}`);
   try {
-    await Print.printAsync({ html, printerUrl: printer?.url ?? undefined });
-    console.log('[print] Print.printAsync({ html }) resolved');
-  } catch (e) {
-    console.error('[print] Print.printAsync({ html }) rejected:', e);
-    throw e;
+    if (pdfUri) {
+      await Print.printAsync({ uri: pdfUri, printerUrl: printer?.url ?? undefined });
+    } else {
+      const html =
+        '<html><body><pre style="font-family: Menlo, monospace; font-size: 13px; ' +
+        'white-space: pre-wrap; word-wrap: break-word;">' +
+        escapeHtml(content) +
+        '</pre></body></html>';
+      await Print.printAsync({ html, printerUrl: printer?.url ?? undefined });
+    }
+    console.log(`[print] Print.printAsync resolved (${call.mode})`);
+    return { call };
+  } catch (e: any) {
+    console.error(`[print] Print.printAsync rejected (${call.mode}):`, e);
+    throw new PrintCallError(e?.message ?? String(e), call);
   }
 }
 

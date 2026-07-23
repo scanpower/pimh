@@ -105,32 +105,46 @@ export default function ScanScreen({
           `(printer: ${settings.printer ? settings.printer.name : 'none saved'})`,
       );
       if (results.length === 0) return;
-      try {
-        // Printed one at a time (not merged into a single job) since a result may be an
-        // actual PDF — merging a PDF data URI with plain text wouldn't make sense.
-        for (const [i, r] of results.entries()) {
-          console.log(`[print] result ${i + 1}/${results.length}, ${r.content.length} chars: ${r.content.slice(0, 100)}`);
-          await printContent(r.content, settings.printer);
+      // Printed one at a time (not merged into a single job) since a result may be an actual
+      // PDF — merging a PDF data URI with plain text wouldn't make sense. Each attempt gets its
+      // own print_log block (shown alongside Tool result cards) regardless of outcome: expo-print
+      // can resolve successfully on iOS even when the physical printer never gets/renders the
+      // job, so seeing exactly what was sent and where is the only way to confirm what happened.
+      for (const [i, r] of results.entries()) {
+        try {
+          const { call } = await printContent(r.content, settings.printer);
+          setRun((prev) => ({
+            ...prev,
+            blocks: [
+              ...prev.blocks,
+              {
+                kind: 'print_log',
+                isError: false,
+                text: `[${i + 1}/${results.length}] → ${call.target}\nmode: ${call.mode}\n${call.detail}\nPrint.printAsync() resolved.`,
+              },
+            ],
+          }));
+        } catch (e: any) {
+          console.error('[print] printContent failed:', e);
+          const call = e?.call as { mode: string; target: string; detail: string } | undefined;
+          const detail = e?.message || String(e);
+          setRun((prev) => ({
+            ...prev,
+            blocks: [
+              ...prev.blocks,
+              {
+                kind: 'print_log',
+                isError: true,
+                text:
+                  (call ? `[${i + 1}/${results.length}] → ${call.target}\nmode: ${call.mode}\n${call.detail}\n` : '') +
+                  `FAILED: ${detail}`,
+              },
+            ],
+          }));
+          // Printing is a silent background side effect of the scan finishing — a card in the
+          // (opt-in) Tool result section isn't enough on its own, so surface it directly too.
+          Alert.alert('Print failed', detail);
         }
-        console.log('[print] all results sent to Print.printAsync successfully');
-      } catch (e: any) {
-        console.error('[print] maybePrintToolResults failed:', e);
-        const detail = e?.message || e?.code || (() => {
-          try {
-            return JSON.stringify(e);
-          } catch {
-            return String(e);
-          }
-        })();
-        setRun((prev) => ({
-          ...prev,
-          blocks: [...prev.blocks, { kind: 'warning', text: `Print failed: ${detail}` }],
-        }));
-        // Printing is a silent background side effect of the scan finishing — an easy-to-miss
-        // warning card at the bottom of the results isn't enough, so surface it directly too.
-        // A common cause: a saved printer that isn't currently reachable on the network fails
-        // with "Provided printer is not available." and otherwise shows no sign anything happened.
-        Alert.alert('Print failed', String(detail));
       }
     },
     [activeContext, settings.printer],
@@ -361,6 +375,18 @@ export default function ScanScreen({
             <Text style={styles.warningText}>⚠ {block.text}</Text>
           </View>
         );
+      case 'print_log':
+        return (
+          <ToolLine
+            key={i}
+            title={block.isError ? '✕ Print failed' : '🖨 Print call'}
+            titleColor={block.isError ? colors.danger : colors.accent}
+            borderColor={block.isError ? colors.danger : undefined}
+            body={block.text}
+            expanded={expandedTools.has(i)}
+            onToggle={() => toggleTool(i)}
+          />
+        );
     }
   };
 
@@ -495,7 +521,9 @@ export default function ScanScreen({
         )}
         {settings.showToolCalls &&
           indexedBlocks
-            .filter(({ block }) => block.kind === 'tool_use' || block.kind === 'tool_result')
+            .filter(
+              ({ block }) => block.kind === 'tool_use' || block.kind === 'tool_result' || block.kind === 'print_log',
+            )
             .map(({ block, i }) => renderBlock(block, i))}
         {run.status === 'idle' && !lastScan && (
           <Text style={[styles.dimText, { textAlign: 'center', marginTop: 24 }]}>
