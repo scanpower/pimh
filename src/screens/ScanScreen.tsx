@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  Alert,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -93,22 +94,43 @@ export default function ScanScreen({
   // results (not the whole conversation) straight to the configured printer.
   const maybePrintToolResults = useCallback(
     async (newBlocks: AgentBlock[]) => {
-      if (!activeContext || !PRINT_TRIGGER_RE.test(activeContext.instructions)) return;
+      if (!activeContext || !PRINT_TRIGGER_RE.test(activeContext.instructions)) {
+        return;
+      }
       const results = newBlocks.filter(
         (b) => b.kind === 'tool_result' && !b.isError,
       ) as Extract<AgentBlock, { kind: 'tool_result' }>[];
+      console.log(
+        `[print] context "${activeContext.name}" mentions "print" — ${results.length} tool result(s) to check ` +
+          `(printer: ${settings.printer ? settings.printer.name : 'none saved'})`,
+      );
       if (results.length === 0) return;
       try {
         // Printed one at a time (not merged into a single job) since a result may be an
         // actual PDF — merging a PDF data URI with plain text wouldn't make sense.
-        for (const r of results) {
+        for (const [i, r] of results.entries()) {
+          console.log(`[print] result ${i + 1}/${results.length}, ${r.content.length} chars: ${r.content.slice(0, 100)}`);
           await printContent(r.content, settings.printer);
         }
+        console.log('[print] all results sent to Print.printAsync successfully');
       } catch (e: any) {
+        console.error('[print] maybePrintToolResults failed:', e);
+        const detail = e?.message || e?.code || (() => {
+          try {
+            return JSON.stringify(e);
+          } catch {
+            return String(e);
+          }
+        })();
         setRun((prev) => ({
           ...prev,
-          blocks: [...prev.blocks, { kind: 'warning', text: `Print failed: ${e?.message ?? String(e)}` }],
+          blocks: [...prev.blocks, { kind: 'warning', text: `Print failed: ${detail}` }],
         }));
+        // Printing is a silent background side effect of the scan finishing — an easy-to-miss
+        // warning card at the bottom of the results isn't enough, so surface it directly too.
+        // A common cause: a saved printer that isn't currently reachable on the network fails
+        // with "Provided printer is not available." and otherwise shows no sign anything happened.
+        Alert.alert('Print failed', String(detail));
       }
     },
     [activeContext, settings.printer],

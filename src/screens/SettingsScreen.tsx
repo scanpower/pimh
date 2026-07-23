@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { AppSettings, McpAuthType, McpOAuthConfig, McpServerConfig } from '../types';
 import { connectMcpServer, deriveBaseUrl, disconnectMcpServer, getOAuthStatus, OAuthStatus } from '../lib/mcpOAuth';
-import { selectPrinter } from '../lib/print';
+import { printContent, selectPrinter } from '../lib/print';
 import { colors } from '../ui/theme';
 
 const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'];
@@ -42,6 +42,7 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
   const [keyDraft, setKeyDraft] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [selectingPrinter, setSelectingPrinter] = useState(false);
+  const [testPrinting, setTestPrinting] = useState(false);
 
   const handleSelectPrinter = async () => {
     setSelectingPrinter(true);
@@ -52,6 +53,21 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
       Alert.alert('Printer selection failed', e?.message ?? String(e));
     } finally {
       setSelectingPrinter(false);
+    }
+  };
+
+  // Prints a trivial known-good text job directly from a button tap, so a failure here isolates
+  // the printer/expo-print setup itself from anything specific to PDFs or the scan-triggered path.
+  const handleTestPrint = async () => {
+    setTestPrinting(true);
+    try {
+      await printContent(`midg test print\n${new Date().toString()}`, settings.printer);
+      Alert.alert('Sent', 'Test print job sent — check the printer, and check the Metro logs for [print] lines.');
+    } catch (e: any) {
+      console.error('[print] test print failed:', e);
+      Alert.alert('Test print failed', e?.message ?? String(e));
+    } finally {
+      setTestPrinting(false);
     }
   };
 
@@ -188,6 +204,17 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
             </TouchableOpacity>
           </>
         )}
+        <TouchableOpacity
+          style={[styles.secondaryButton, { marginTop: 8 }]}
+          onPress={handleTestPrint}
+          disabled={testPrinting}
+        >
+          {testPrinting ? (
+            <ActivityIndicator color={colors.text} />
+          ) : (
+            <Text style={styles.secondaryButtonText}>Test print</Text>
+          )}
+        </TouchableOpacity>
       </View>
 
       <View>
