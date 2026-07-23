@@ -30,6 +30,15 @@ export default function App() {
   const [contexts, setContexts] = useState<ContextNote[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [apiKey, setApiKey] = useState('');
+  const [scanResetSignal, setScanResetSignal] = useState(0);
+
+  const handleTabPress = (id: Tab) => {
+    if (id === 'scan' && tab === 'scan') {
+      // Already on Scan — tapping it again acts like the "Scan again" button.
+      setScanResetSignal((n) => n + 1);
+    }
+    setTab(id);
+  };
 
   useEffect(() => {
     (async () => {
@@ -65,7 +74,7 @@ export default function App() {
       </View>
       <View style={{ flex: 1 }}>
         {!loaded ? null : tab === 'scan' ? (
-          <ScanScreen apiKey={apiKey} settings={settings} contexts={contexts} />
+          <ScanScreen apiKey={apiKey} settings={settings} contexts={contexts} resetSignal={scanResetSignal} />
         ) : tab === 'contexts' ? (
           <ContextsScreen contexts={contexts} onChange={handleContextsChange} />
         ) : (
@@ -79,7 +88,7 @@ export default function App() {
       </View>
       <View style={styles.tabBar}>
         {TABS.map((t) => (
-          <TouchableOpacity key={t.id} style={styles.tabButton} onPress={() => setTab(t.id)}>
+          <TouchableOpacity key={t.id} style={styles.tabButton} onPress={() => handleTabPress(t.id)}>
             <Text style={[styles.tabIcon, tab === t.id && styles.tabActive]}>{t.icon}</Text>
             <Text style={[styles.tabLabel, tab === t.id && styles.tabActive]}>{t.label}</Text>
           </TouchableOpacity>

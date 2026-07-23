@@ -35,9 +35,11 @@ interface Props {
   apiKey: string;
   settings: AppSettings;
   contexts: ContextNote[];
+  /** Bumped by the parent when the Scan tab is tapped while already active — acts like "Scan again". */
+  resetSignal?: number;
 }
 
-export default function ScanScreen({ apiKey, settings, contexts }: Props) {
+export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(true);
   const [lastScan, setLastScan] = useState<ScanEvent | null>(null);
@@ -97,6 +99,13 @@ export default function ScanScreen({ apiKey, settings, contexts }: Props) {
     setManualCode('');
     startRun({ data: code, type: 'manual', timestamp: Date.now() });
   };
+
+  // Parent bumps resetSignal when the Scan tab is tapped while already active.
+  useEffect(() => {
+    if (resetSignal === undefined) return;
+    setScanning(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetSignal]);
 
   // Collapse the camera + manual-entry area once the results list scrolls past
   // a small threshold, and restore it once scrolled back near the top.
