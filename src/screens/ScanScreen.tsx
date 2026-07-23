@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import Markdown from 'react-native-markdown-display';
-import { AgentRun, AppSettings, ContextNote, ScanEvent } from '../types';
+import { AgentBlock, AgentRun, AppSettings, ContextNote, ScanEvent } from '../types';
 import { runScan } from '../lib/claude';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
@@ -146,6 +146,50 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
     [topCollapsed],
   );
 
+  const indexedBlocks = run.blocks.map((block, i) => ({ block, i }));
+
+  const renderBlock = (block: AgentBlock, i: number) => {
+    switch (block.kind) {
+      case 'text':
+        return (
+          <View key={i} style={styles.answerBlock}>
+            <Markdown style={markdownStyles} markdownit={markdownItInstance} rules={markdownRules}>
+              {block.text}
+            </Markdown>
+          </View>
+        );
+      case 'tool_use':
+        return (
+          <ToolLine
+            key={i}
+            title={`⚙ ${block.server} → ${block.tool}`}
+            titleColor={colors.accent}
+            body={block.input}
+            expanded={expandedTools.has(i)}
+            onToggle={() => toggleTool(i)}
+          />
+        );
+      case 'tool_result':
+        return (
+          <ToolLine
+            key={i}
+            title={block.isError ? '✕ Tool error' : '✓ Tool result'}
+            titleColor={block.isError ? colors.danger : colors.accent}
+            borderColor={block.isError ? colors.danger : undefined}
+            body={block.content}
+            expanded={expandedTools.has(i)}
+            onToggle={() => toggleTool(i)}
+          />
+        );
+      case 'warning':
+        return (
+          <View key={i} style={styles.warningCard}>
+            <Text style={styles.warningText}>⚠ {block.text}</Text>
+          </View>
+        );
+    }
+  };
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -235,47 +279,13 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
           </View>
         )}
         {run.status === 'error' && <Text style={styles.errorText}>{run.error}</Text>}
-        {run.blocks.map((block, i) => {
-          switch (block.kind) {
-            case 'text':
-              return (
-                <View key={i} style={styles.answerBlock}>
-                  <Markdown style={markdownStyles} markdownit={markdownItInstance} rules={markdownRules}>
-                    {block.text}
-                  </Markdown>
-                </View>
-              );
-            case 'tool_use':
-              return (
-                <ToolLine
-                  key={i}
-                  title={`⚙ ${block.server} → ${block.tool}`}
-                  titleColor={colors.accent}
-                  body={block.input}
-                  expanded={expandedTools.has(i)}
-                  onToggle={() => toggleTool(i)}
-                />
-              );
-            case 'tool_result':
-              return (
-                <ToolLine
-                  key={i}
-                  title={block.isError ? '✕ Tool error' : '✓ Tool result'}
-                  titleColor={block.isError ? colors.danger : colors.accent}
-                  borderColor={block.isError ? colors.danger : undefined}
-                  body={block.content}
-                  expanded={expandedTools.has(i)}
-                  onToggle={() => toggleTool(i)}
-                />
-              );
-            case 'warning':
-              return (
-                <View key={i} style={styles.warningCard}>
-                  <Text style={styles.warningText}>⚠ {block.text}</Text>
-                </View>
-              );
-          }
-        })}
+        {/* Warnings first (need attention), then the formatted final answer, then raw tool
+            call/result detail at the bottom — regardless of the order blocks arrived in. */}
+        {indexedBlocks.filter(({ block }) => block.kind === 'warning').map(({ block, i }) => renderBlock(block, i))}
+        {indexedBlocks.filter(({ block }) => block.kind === 'text').map(({ block, i }) => renderBlock(block, i))}
+        {indexedBlocks
+          .filter(({ block }) => block.kind === 'tool_use' || block.kind === 'tool_result')
+          .map(({ block, i }) => renderBlock(block, i))}
         {run.status === 'idle' && !lastScan && (
           <Text style={[styles.dimText, { textAlign: 'center', marginTop: 24 }]}>
             Point the camera at a 1D barcode.{'\n'}The active context note decides what happens next.
