@@ -302,12 +302,14 @@ export async function runScan(
           .join('\n')
       : '';
 
+  const scanLine = scan.data
+    ? `Scanned barcode: ${scan.data}\nSymbology: ${scan.type}\nScanned at: ${new Date(scan.timestamp).toISOString()}`
+    : `No barcode scanned — running the active context directly at ${new Date(scan.timestamp).toISOString()}.`;
+
   const initialMessages = [
     {
       role: 'user',
-      content:
-        `Scanned barcode: ${scan.data}\nSymbology: ${scan.type}\nScanned at: ${new Date(scan.timestamp).toISOString()}` +
-        (fieldLines ? `\n\nProvided details:\n${fieldLines}` : ''),
+      content: scanLine + (fieldLines ? `\n\nProvided details:\n${fieldLines}` : ''),
     },
   ];
 

@@ -204,8 +204,9 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
   );
 
   const submitManual = () => {
+    // Empty input is allowed: some contexts don't need a scanned code at all
+    // (they run purely off prompt fields / instructions), so Go must still work.
     const code = manualCode.trim();
-    if (!code) return;
     setManualCode('');
     startRun({ data: code, type: 'manual', timestamp: Date.now() });
   };
@@ -364,7 +365,7 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
         onScroll={handleResultsScroll}
         scrollEventThrottle={16}
       >
-        {lastScan && (
+        {lastScan && lastScan.data && (
           <View style={styles.scanChip}>
             <Text style={styles.scanChipText}>
               {lastScan.data} <Text style={styles.dimText}>({lastScan.type})</Text>
