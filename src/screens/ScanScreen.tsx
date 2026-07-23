@@ -51,12 +51,23 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
 
   const activeContext = contexts.find((c) => c.active);
 
+  const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
+  const toggleTool = useCallback((i: number) => {
+    setExpandedTools((prev) => {
+      const next = new Set(prev);
+      if (next.has(i)) next.delete(i);
+      else next.add(i);
+      return next;
+    });
+  }, []);
+
   const startRun = useCallback(
     async (scan: ScanEvent) => {
       if (busyRef.current) return;
       busyRef.current = true;
       setLastScan(scan);
       setScanning(false);
+      setExpandedTools(new Set());
 
       if (!apiKey) {
         setRun({
@@ -242,23 +253,26 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
               );
             case 'tool_use':
               return (
-                <View key={i} style={styles.toolCard}>
-                  <Text style={styles.toolTitle}>
-                    ⚙ {block.server} → {block.tool}
-                  </Text>
-                  <Text style={styles.toolBody} numberOfLines={4}>
-                    {block.input}
-                  </Text>
-                </View>
+                <ToolLine
+                  key={i}
+                  title={`⚙ ${block.server} → ${block.tool}`}
+                  titleColor={colors.accent}
+                  body={block.input}
+                  expanded={expandedTools.has(i)}
+                  onToggle={() => toggleTool(i)}
+                />
               );
             case 'tool_result':
               return (
-                <View key={i} style={[styles.toolCard, block.isError && styles.toolCardError]}>
-                  <Text style={styles.toolTitle}>{block.isError ? '✕ Tool error' : '✓ Tool result'}</Text>
-                  <Text style={styles.toolBody} numberOfLines={8}>
-                    {block.content}
-                  </Text>
-                </View>
+                <ToolLine
+                  key={i}
+                  title={block.isError ? '✕ Tool error' : '✓ Tool result'}
+                  titleColor={block.isError ? colors.danger : colors.accent}
+                  borderColor={block.isError ? colors.danger : undefined}
+                  body={block.content}
+                  expanded={expandedTools.has(i)}
+                  onToggle={() => toggleTool(i)}
+                />
               );
             case 'warning':
               return (
@@ -275,6 +289,44 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
         )}
       </ScrollView>
     </KeyboardAvoidingView>
+  );
+}
+
+/** A tool call/result card: collapsed to one line, tap to expand the full title + body. */
+function ToolLine({
+  title,
+  titleColor,
+  body,
+  borderColor,
+  expanded,
+  onToggle,
+}: {
+  title: string;
+  titleColor: string;
+  body: string;
+  borderColor?: string;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const header = `${expanded ? '▾' : '▸'} ${title}`;
+  return (
+    <TouchableOpacity
+      style={[styles.toolCard, borderColor ? { borderColor } : null]}
+      onPress={onToggle}
+      activeOpacity={0.7}
+    >
+      {expanded ? (
+        <>
+          <Text style={[styles.toolTitle, { color: titleColor }]}>{header}</Text>
+          <Text style={styles.toolBody}>{body}</Text>
+        </>
+      ) : (
+        <Text numberOfLines={1} ellipsizeMode="tail">
+          <Text style={[styles.toolTitleInline, { color: titleColor }]}>{header}</Text>
+          <Text style={styles.toolBody}> {body}</Text>
+        </Text>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -367,6 +419,7 @@ const styles = StyleSheet.create({
   },
   warningText: { color: colors.warning, fontSize: 13 },
   toolTitle: { color: colors.accent, fontWeight: '600', marginBottom: 4 },
+  toolTitleInline: { color: colors.accent, fontWeight: '600' },
   toolBody: { color: colors.textDim, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace' },
   errorText: { color: colors.danger, marginVertical: 8 },
   dimText: { color: colors.textDim },
