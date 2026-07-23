@@ -14,9 +14,11 @@ import {
   View,
 } from 'react-native';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
+import Markdown from 'react-native-markdown-display';
 import { AgentRun, AppSettings, ContextNote, ScanEvent } from '../types';
 import { runScan } from '../lib/claude';
 import { colors } from '../ui/theme';
+import { markdownItInstance, markdownStyles } from '../ui/markdown';
 
 // 1D symbologies only, per app requirements.
 const BARCODE_TYPES = [
@@ -226,9 +228,11 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
           switch (block.kind) {
             case 'text':
               return (
-                <Text key={i} style={styles.answerText}>
-                  {block.text}
-                </Text>
+                <View key={i} style={styles.answerBlock}>
+                  <Markdown style={markdownStyles} markdownit={markdownItInstance}>
+                    {block.text}
+                  </Markdown>
+                </View>
               );
             case 'thinking':
               return (
@@ -337,7 +341,7 @@ const styles = StyleSheet.create({
   },
   scanChipText: { color: colors.text, fontVariant: ['tabular-nums'] },
   runningRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
-  answerText: { color: colors.text, fontSize: 16, lineHeight: 23, marginBottom: 10 },
+  answerBlock: { marginBottom: 10 },
   thinkingText: {
     color: colors.textDim,
     fontStyle: 'italic',
