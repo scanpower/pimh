@@ -279,6 +279,14 @@ export default function ScanScreen({
   const [topCollapsed, setTopCollapsed] = useState(false);
   const collapseAnim = useRef(new Animated.Value(1)).current;
   const resultsScrollRef = useRef<ScrollView>(null);
+  // Only auto-collapse/expand the header when the results actually overflow the visible area.
+  // Without this, short output (e.g. an answer plus a warning card) can fit exactly around the
+  // collapse threshold: scrolling past it collapses the header, which frees up enough room that
+  // the content now fits entirely, snapping the scroll position back — which then re-expands the
+  // header, endlessly oscillating and never letting the scroll settle at the true bottom.
+  const [resultsViewportHeight, setResultsViewportHeight] = useState(0);
+  const [resultsContentHeight, setResultsContentHeight] = useState(0);
+  const resultsOverflow = resultsContentHeight > resultsViewportHeight + 1;
 
   useEffect(() => {
     Animated.timing(collapseAnim, {
@@ -300,11 +308,12 @@ export default function ScanScreen({
 
   const handleResultsScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (!resultsOverflow) return; // nothing to scroll — leave the header alone
       const y = e.nativeEvent.contentOffset.y;
       if (y > 24 && !topCollapsed) setTopCollapsed(true);
       else if (y <= 4 && topCollapsed) setTopCollapsed(false);
     },
-    [topCollapsed],
+    [topCollapsed, resultsOverflow],
   );
 
   useEffect(() => {
@@ -430,6 +439,8 @@ export default function ScanScreen({
         contentContainerStyle={{ paddingBottom: 24 }}
         onScroll={handleResultsScroll}
         scrollEventThrottle={16}
+        onLayout={(e) => setResultsViewportHeight(e.nativeEvent.layout.height)}
+        onContentSizeChange={(_, height) => setResultsContentHeight(height)}
       >
         {lastScan && lastScan.data && (
           <View style={styles.scanChip}>
