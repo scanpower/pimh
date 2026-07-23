@@ -24,26 +24,36 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ];
 
-/** Pulses opacity while `active`, to show "Claude" is working without a separate spinner row. */
+/**
+ * Pulses opacity while `active`, to show "Claude" is working without a separate spinner row.
+ * Wraps children in an Animated.View rather than animating a nested Animated.Text directly —
+ * an Animated.Text nested inside a plain Text (an inline text span) doesn't reliably re-animate
+ * on every frame, so it reads as a single flash rather than a continuous pulse.
+ */
 function ShimmerText({ active, style, children }: { active: boolean; style?: any; children: React.ReactNode }) {
   const opacity = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     if (!active) {
+      opacity.stopAnimation();
       opacity.setValue(1);
       return;
     }
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.3, duration: 650, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 650, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.25, duration: 500, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true }),
       ]),
     );
     loop.start();
     return () => loop.stop();
   }, [active, opacity]);
 
-  return <Animated.Text style={[style, { opacity }]}>{children}</Animated.Text>;
+  return (
+    <Animated.View style={{ opacity }}>
+      <Text style={style}>{children}</Text>
+    </Animated.View>
+  );
 }
 
 export default function App() {
@@ -93,9 +103,12 @@ export default function App() {
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>midg</Text>
-        <Text style={styles.headerSub}>
-          scan → context → <ShimmerText active={claudeRunning}>Claude</ShimmerText>
-        </Text>
+        <View style={styles.headerSubRow}>
+          <Text style={styles.headerSub}>scan → context → </Text>
+          <ShimmerText active={claudeRunning} style={styles.headerSub}>
+            Claude
+          </ShimmerText>
+        </View>
       </View>
       <View style={{ flex: 1 }}>
         {!loaded ? null : tab === 'scan' ? (
@@ -142,6 +155,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   headerTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
+  headerSubRow: { flexDirection: 'row', alignItems: 'baseline' },
   headerSub: { color: colors.textDim, fontSize: 12 },
   tabBar: {
     flexDirection: 'row',
