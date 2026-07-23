@@ -102,7 +102,7 @@ export default function App() {
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>midg</Text>
+        <Text style={styles.headerTitle}>pimh</Text>
         <View style={styles.headerSubRow}>
           <Text style={styles.headerSub}>scan → context → </Text>
           <ShimmerText active={claudeRunning} style={[styles.headerSub, styles.headerSubClaude]}>

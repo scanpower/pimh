@@ -61,7 +61,7 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
   const handleTestPrint = async () => {
     setTestPrinting(true);
     try {
-      await printContent(`midg test print\n${new Date().toString()}`, settings.printer);
+      await printContent(`pimh test print\n${new Date().toString()}`, settings.printer);
       Alert.alert('Sent', 'Test print job sent — check the printer, and check the Metro logs for [print] lines.');
     } catch (e: any) {
       console.error('[print] test print failed:', e);

@@ -1,21 +1,21 @@
 {
   "expo": {
-    "name": "midg",
-    "slug": "midg",
+    "name": "pimh",
+    "slug": "pimh",
     "version": "1.0.0",
-    "scheme": "midg",
+    "scheme": "pimh",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.scanpower.midg",
+      "bundleIdentifier": "com.scanpower.pimh",
       "infoPlist": {
-        "NSCameraUsageDescription": "midg uses the camera to scan 1D barcodes."
+        "NSCameraUsageDescription": "pimh uses the camera to scan 1D barcodes."
       }
     },
     "android": {
-      "package": "com.scanpower.midg",
+      "package": "com.scanpower.pimh",
       "permissions": [
         "android.permission.CAMERA"
       ],
@@ -35,7 +35,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "midg uses the camera to scan 1D barcodes."
+          "cameraPermission": "pimh uses the camera to scan 1D barcodes."
         }
       ],
       "expo-web-browser"
