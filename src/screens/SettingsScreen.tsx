@@ -124,6 +124,24 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
       </View>
 
       <View>
+        <Text style={styles.sectionTitle}>Display</Text>
+        <View style={styles.toggleRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.toggleLabel}>Show tool calls and raw results</Text>
+            <Text style={styles.helpText}>
+              When on, tool calls and their raw results appear as 1-line expandable sections below
+              the answer. Off by default — most scans just need the final answer.
+            </Text>
+          </View>
+          <Switch
+            value={settings.showToolCalls}
+            onValueChange={(showToolCalls) => onSettingsChange({ ...settings, showToolCalls })}
+            trackColor={{ true: colors.accent }}
+          />
+        </View>
+      </View>
+
+      <View>
         <Text style={styles.sectionTitle}>MCP tool connections</Text>
         <Text style={styles.helpText}>
           Enabled servers are attached to every scan via the Claude API MCP connector, so Claude can call
@@ -353,6 +371,8 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.bg },
   sectionTitle: { color: colors.text, fontSize: 17, fontWeight: '700', marginBottom: 6 },
   helpText: { color: colors.textDim, fontSize: 12, lineHeight: 17, marginBottom: 10 },
+  toggleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  toggleLabel: { color: colors.text, fontSize: 15, marginBottom: 2 },
   input: {
     backgroundColor: colors.surface,
     borderColor: colors.border,

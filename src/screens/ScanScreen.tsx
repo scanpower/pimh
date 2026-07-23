@@ -283,9 +283,10 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
             call/result detail at the bottom — regardless of the order blocks arrived in. */}
         {indexedBlocks.filter(({ block }) => block.kind === 'warning').map(({ block, i }) => renderBlock(block, i))}
         {indexedBlocks.filter(({ block }) => block.kind === 'text').map(({ block, i }) => renderBlock(block, i))}
-        {indexedBlocks
-          .filter(({ block }) => block.kind === 'tool_use' || block.kind === 'tool_result')
-          .map(({ block, i }) => renderBlock(block, i))}
+        {settings.showToolCalls &&
+          indexedBlocks
+            .filter(({ block }) => block.kind === 'tool_use' || block.kind === 'tool_result')
+            .map(({ block, i }) => renderBlock(block, i))}
         {run.status === 'idle' && !lastScan && (
           <Text style={[styles.dimText, { textAlign: 'center', marginTop: 24 }]}>
             Point the camera at a 1D barcode.{'\n'}The active context note decides what happens next.

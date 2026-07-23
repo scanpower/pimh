@@ -9,6 +9,7 @@ const OAUTH_KEY_PREFIX = 'midg.mcp_oauth.';
 
 export const DEFAULT_SETTINGS: AppSettings = {
   model: 'claude-opus-4-8',
+  showToolCalls: false,
   mcpServers: [
     {
       id: 'scanpower',

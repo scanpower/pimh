@@ -44,6 +44,8 @@ export interface StoredOAuthTokens {
 export interface AppSettings {
   model: string;
   mcpServers: McpServerConfig[];
+  /** Show tool call/result cards in scan results. Off by default — most users just want the final answer. */
+  showToolCalls: boolean;
 }
 
 export interface ScanEvent {
