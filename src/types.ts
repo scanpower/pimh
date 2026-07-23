@@ -67,11 +67,22 @@ export interface StoredOAuthTokens {
   scope?: string;
 }
 
+/** A printer chosen via expo-print's selectPrinterAsync (iOS only). */
+export interface PrinterConfig {
+  name: string;
+  url: string;
+}
+
 export interface AppSettings {
   model: string;
   mcpServers: McpServerConfig[];
   /** Show tool call/result cards in scan results. Off by default — most users just want the final answer. */
   showToolCalls: boolean;
+  /**
+   * Default printer for contexts that trigger printing (instructions containing the word
+   * "print"). iOS only — null means the system print dialog's printer picker is used instead.
+   */
+  printer: PrinterConfig | null;
 }
 
 export interface ScanEvent {

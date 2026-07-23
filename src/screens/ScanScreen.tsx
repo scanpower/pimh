@@ -17,8 +17,13 @@ import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-ca
 import Markdown from 'react-native-markdown-display';
 import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
 import { continueScan, runScan } from '../lib/claude';
+import { printText } from '../lib/print';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
+
+// Contexts opt into auto-printing tool results by mentioning "print" (as a whole word,
+// so "printer" or "blueprint" don't accidentally trigger it) anywhere in their instructions.
+const PRINT_TRIGGER_RE = /\bprint\b/i;
 
 // 1D symbologies only, per app requirements.
 const BARCODE_TYPES = [
@@ -84,6 +89,27 @@ export default function ScanScreen({
     [contexts, onContextsChange],
   );
 
+  // If the active context's instructions mention "print", send this step's tool
+  // results (not the whole conversation) straight to the configured printer.
+  const maybePrintToolResults = useCallback(
+    async (newBlocks: AgentBlock[]) => {
+      if (!activeContext || !PRINT_TRIGGER_RE.test(activeContext.instructions)) return;
+      const results = newBlocks.filter(
+        (b) => b.kind === 'tool_result' && !b.isError,
+      ) as Extract<AgentBlock, { kind: 'tool_result' }>[];
+      if (results.length === 0) return;
+      try {
+        await printText(results.map((r) => r.content).join('\n\n'), settings.printer);
+      } catch (e: any) {
+        setRun((prev) => ({
+          ...prev,
+          blocks: [...prev.blocks, { kind: 'warning', text: `Print failed: ${e?.message ?? String(e)}` }],
+        }));
+      }
+    },
+    [activeContext, settings.printer],
+  );
+
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
   const toggleTool = useCallback((i: number) => {
     setExpandedTools((prev) => {
@@ -134,6 +160,7 @@ export default function ScanScreen({
           messages: result.messages,
         });
         mergeMemoryNotes(result.memoryNotes);
+        void maybePrintToolResults(result.blocks);
       } catch (e: any) {
         setRun({
           status: 'error',
@@ -144,7 +171,7 @@ export default function ScanScreen({
         busyRef.current = false;
       }
     },
-    [apiKey, settings, activeContext, memoryContext, mergeMemoryNotes],
+    [apiKey, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
   );
 
   const startRun = useCallback(
@@ -194,13 +221,14 @@ export default function ScanScreen({
           messages: result.messages,
         });
         mergeMemoryNotes(result.memoryNotes);
+        void maybePrintToolResults(result.blocks);
       } catch (e: any) {
         setRun({ status: 'error', blocks: priorBlocks, error: e?.message ?? String(e) });
       } finally {
         busyRef.current = false;
       }
     },
-    [run.messages, run.blocks, apiKey, settings, activeContext, memoryContext, mergeMemoryNotes],
+    [run.messages, run.blocks, apiKey, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
   );
 
   const onBarcodeScanned = useCallback(

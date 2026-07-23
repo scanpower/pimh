@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -12,6 +13,7 @@ import {
 } from 'react-native';
 import { AppSettings, McpAuthType, McpOAuthConfig, McpServerConfig } from '../types';
 import { connectMcpServer, deriveBaseUrl, disconnectMcpServer, getOAuthStatus, OAuthStatus } from '../lib/mcpOAuth';
+import { selectPrinter } from '../lib/print';
 import { colors } from '../ui/theme';
 
 const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'];
@@ -39,6 +41,19 @@ interface Props {
 export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSettingsChange }: Props) {
   const [keyDraft, setKeyDraft] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
+  const [selectingPrinter, setSelectingPrinter] = useState(false);
+
+  const handleSelectPrinter = async () => {
+    setSelectingPrinter(true);
+    try {
+      const printer = await selectPrinter();
+      if (printer) onSettingsChange({ ...settings, printer });
+    } catch (e: any) {
+      Alert.alert('Printer selection failed', e?.message ?? String(e));
+    } finally {
+      setSelectingPrinter(false);
+    }
+  };
 
   const updateServer = (id: string, patch: Partial<McpServerConfig>) => {
     onSettingsChange({
@@ -139,6 +154,40 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
             trackColor={{ true: colors.accent }}
           />
         </View>
+      </View>
+
+      <View>
+        <Text style={styles.sectionTitle}>Printer</Text>
+        <Text style={styles.helpText}>
+          {Platform.OS === 'ios'
+            ? 'Contexts whose instructions mention "print" send that scan’s tool call results straight ' +
+              'to this printer over WiFi (AirPrint), skipping the picker.'
+            : 'Contexts whose instructions mention "print" send that scan’s tool call results to the ' +
+              'system print dialog, where you pick a printer each time.'}
+        </Text>
+        {Platform.OS === 'ios' && (
+          <>
+            <View style={styles.toggleRow}>
+              <Text style={[styles.toggleLabel, { flex: 1 }]}>{settings.printer?.name ?? 'No printer selected'}</Text>
+              {settings.printer && (
+                <TouchableOpacity onPress={() => onSettingsChange({ ...settings, printer: null })}>
+                  <Text style={[styles.linkText, { color: colors.danger }]}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <TouchableOpacity
+              style={[styles.secondaryButton, { marginTop: 8 }]}
+              onPress={handleSelectPrinter}
+              disabled={selectingPrinter}
+            >
+              {selectingPrinter ? (
+                <ActivityIndicator color={colors.text} />
+              ) : (
+                <Text style={styles.secondaryButtonText}>{settings.printer ? 'Change printer' : 'Select printer'}</Text>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       <View>
