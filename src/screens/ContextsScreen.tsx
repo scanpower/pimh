@@ -201,6 +201,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
       </View>
 
       <FlatList
+        style={styles.list}
         data={sortedContexts}
         keyExtractor={(c) => c.id}
         contentContainerStyle={{ padding: 12, gap: 10 }}
@@ -208,6 +209,14 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
           <Text style={[styles.dimText, { textAlign: 'center', marginTop: 32 }]}>
             No context notes yet. Create one — it drives what Claude does when you scan.
           </Text>
+        }
+        ListFooterComponent={
+          sortedContexts.length > 0 ? (
+            <Text style={[styles.dimText, styles.hint]}>
+              Tap a note to make it active. The active note is sent to Claude as instructions with every scan.
+              {'\n'}Memory is included automatically and updates itself from tool call results.
+            </Text>
+          ) : null
         }
         renderItem={({ item }) => (
           <TouchableOpacity
@@ -247,10 +256,6 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
           </TouchableOpacity>
         )}
       />
-      <Text style={[styles.dimText, styles.hint]}>
-        Tap a note to make it active. The active note is sent to Claude as instructions with every scan.
-        {'\n'}Memory is included automatically and updates itself from tool call results.
-      </Text>
 
       <Modal visible={draft !== null} animationType="slide" onRequestClose={() => setDraft(null)}>
         <KeyboardAvoidingView
@@ -371,6 +376,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: { color: colors.text },
+  list: { flex: 1 },
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
