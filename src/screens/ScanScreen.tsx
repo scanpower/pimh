@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   KeyboardAvoidingView,
   Modal,
@@ -44,9 +43,18 @@ interface Props {
   onContextsChange: (contexts: ContextNote[]) => void;
   /** Bumped by the parent when the Scan tab is tapped while already active — acts like "Scan again". */
   resetSignal?: number;
+  /** Notifies the parent when a Claude request is in flight, e.g. to animate the header. */
+  onRunningChange?: (running: boolean) => void;
 }
 
-export default function ScanScreen({ apiKey, settings, contexts, onContextsChange, resetSignal }: Props) {
+export default function ScanScreen({
+  apiKey,
+  settings,
+  contexts,
+  onContextsChange,
+  resetSignal,
+  onRunningChange,
+}: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(true);
   const [lastScan, setLastScan] = useState<ScanEvent | null>(null);
@@ -245,6 +253,10 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
     [topCollapsed],
   );
 
+  useEffect(() => {
+    onRunningChange?.(run.status === 'running');
+  }, [run.status, onRunningChange]);
+
   const indexedBlocks = run.blocks.map((block, i) => ({ block, i }));
 
   const renderBlock = (block: AgentBlock, i: number) => {
@@ -370,12 +382,6 @@ export default function ScanScreen({ apiKey, settings, contexts, onContextsChang
             <Text style={styles.scanChipText}>
               {lastScan.data} <Text style={styles.dimText}>({lastScan.type})</Text>
             </Text>
-          </View>
-        )}
-        {run.status === 'running' && (
-          <View style={styles.runningRow}>
-            <ActivityIndicator color={colors.accent} />
-            <Text style={[styles.dimText, { marginLeft: 8 }]}>Asking Claude…</Text>
           </View>
         )}
         {run.status === 'error' && <Text style={styles.errorText}>{run.error}</Text>}
@@ -581,7 +587,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   scanChipText: { color: colors.text, fontVariant: ['tabular-nums'] },
-  runningRow: { flexDirection: 'row', alignItems: 'center', marginVertical: 8 },
   answerBlock: { marginBottom: 10 },
   toolCard: {
     backgroundColor: colors.surface,

@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Animated, SafeAreaView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import ScanScreen from './src/screens/ScanScreen';
 import ContextsScreen from './src/screens/ContextsScreen';
@@ -24,6 +24,28 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'settings', label: 'Settings', icon: '⚙' },
 ];
 
+/** Pulses opacity while `active`, to show "Claude" is working without a separate spinner row. */
+function ShimmerText({ active, style, children }: { active: boolean; style?: any; children: React.ReactNode }) {
+  const opacity = useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    if (!active) {
+      opacity.setValue(1);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.3, duration: 650, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 650, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [active, opacity]);
+
+  return <Animated.Text style={[style, { opacity }]}>{children}</Animated.Text>;
+}
+
 export default function App() {
   const [tab, setTab] = useState<Tab>('scan');
   const [loaded, setLoaded] = useState(false);
@@ -31,6 +53,7 @@ export default function App() {
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [apiKey, setApiKey] = useState('');
   const [scanResetSignal, setScanResetSignal] = useState(0);
+  const [claudeRunning, setClaudeRunning] = useState(false);
 
   const handleTabPress = (id: Tab) => {
     if (id === 'scan' && tab === 'scan') {
@@ -70,7 +93,9 @@ export default function App() {
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.headerTitle}>midg</Text>
-        <Text style={styles.headerSub}>scan → context → Claude</Text>
+        <Text style={styles.headerSub}>
+          scan → context → <ShimmerText active={claudeRunning}>Claude</ShimmerText>
+        </Text>
       </View>
       <View style={{ flex: 1 }}>
         {!loaded ? null : tab === 'scan' ? (
@@ -80,6 +105,7 @@ export default function App() {
             contexts={contexts}
             onContextsChange={handleContextsChange}
             resetSignal={scanResetSignal}
+            onRunningChange={setClaudeRunning}
           />
         ) : tab === 'contexts' ? (
           <ContextsScreen contexts={contexts} onChange={handleContextsChange} />
