@@ -6,6 +6,13 @@ export interface ContextNote {
   active: boolean;
   createdAt: number;
   updatedAt: number;
+  /**
+   * The one special, non-selectable "Memory" note (there's exactly one).
+   * Its `instructions` field holds facts auto-extracted from tool call
+   * results across scans, appended to the system prompt on every scan
+   * alongside the active context.
+   */
+  isMemory?: boolean;
 }
 
 export type McpAuthType = 'none' | 'token' | 'oauth';

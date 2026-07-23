@@ -47,6 +47,18 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
     ]);
   };
 
+  const clearMemory = (note: ContextNote) => {
+    Alert.alert('Clear memory', 'Erase everything remembered from previous scans?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () =>
+          onChange(contexts.map((c) => (c.id === note.id ? { ...c, instructions: '', updatedAt: Date.now() } : c))),
+      },
+    ]);
+  };
+
   const saveDraft = () => {
     if (!draft) return;
     const name = draft.name.trim() || 'Untitled';
@@ -62,7 +74,9 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
         id: `ctx-${now}-${Math.random().toString(36).slice(2, 8)}`,
         name,
         instructions: draft.instructions,
-        active: contexts.length === 0,
+        // Memory always exists but is never "active" in the persona sense, so
+        // check for a real active note rather than an empty list.
+        active: !contexts.some((c) => c.active && !c.isMemory),
         createdAt: now,
         updatedAt: now,
       };
@@ -116,7 +130,9 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
   };
 
   const exportToClipboard = async () => {
-    const payload = contexts.map(({ name, instructions }) => ({ name, instructions }));
+    // Memory is app-managed and auto-repopulates — exporting it would just
+    // create a confusing duplicate "Memory" note (without the flag) on import.
+    const payload = contexts.filter((c) => !c.isMemory).map(({ name, instructions }) => ({ name, instructions }));
     await Clipboard.setStringAsync(JSON.stringify(payload, null, 2));
     Alert.alert('Exported', 'All context notes copied to clipboard as JSON.');
   };
@@ -153,12 +169,16 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.card, item.active && styles.cardActive]}
-            onPress={() => setActive(item.id)}
+            onPress={() =>
+              item.isMemory
+                ? setDraft({ id: item.id, name: item.name, instructions: item.instructions })
+                : setActive(item.id)
+            }
             onLongPress={() => setDraft({ id: item.id, name: item.name, instructions: item.instructions })}
           >
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>
-                {item.active ? '● ' : '○ '}
+                {item.isMemory ? '🧠 ' : item.active ? '● ' : '○ '}
                 {item.name}
               </Text>
               <View style={{ flexDirection: 'row', gap: 14 }}>
@@ -170,16 +190,23 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                 <TouchableOpacity onPress={() => remove(item)}>
                   <Text style={[styles.linkText, { color: colors.danger }]}>Delete</Text>
                 </TouchableOpacity>
+                {item.isMemory && (
+                  <TouchableOpacity onPress={() => clearMemory(item)}>
+                    <Text style={styles.linkText}>Clear</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
             <Text style={styles.cardBody} numberOfLines={3}>
-              {item.instructions}
+              {item.instructions ||
+                (item.isMemory ? 'No memory yet — auto-populated from tool call results after scans.' : '')}
             </Text>
           </TouchableOpacity>
         )}
       />
       <Text style={[styles.dimText, styles.hint]}>
         Tap a note to make it active. The active note is sent to Claude as instructions with every scan.
+        {'\n'}Memory is included automatically and updates itself from tool call results.
       </Text>
 
       <Modal visible={draft !== null} animationType="slide" onRequestClose={() => setDraft(null)}>

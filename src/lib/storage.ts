@@ -53,14 +53,34 @@ export const DEFAULT_CONTEXT: ContextNote = {
   updatedAt: 0,
 };
 
+export const DEFAULT_MEMORY_CONTEXT: ContextNote = {
+  id: 'memory',
+  name: 'Memory',
+  instructions: '',
+  active: false,
+  createdAt: 0,
+  updatedAt: 0,
+  isMemory: true,
+};
+
 export async function loadContexts(): Promise<ContextNote[]> {
   const raw = await AsyncStorage.getItem(CONTEXTS_KEY);
-  if (!raw) return [DEFAULT_CONTEXT];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed;
-  } catch {}
-  return [DEFAULT_CONTEXT];
+  let contexts: ContextNote[];
+  if (!raw) {
+    contexts = [DEFAULT_CONTEXT];
+  } else {
+    try {
+      const parsed = JSON.parse(raw);
+      contexts = Array.isArray(parsed) ? parsed : [DEFAULT_CONTEXT];
+    } catch {
+      contexts = [DEFAULT_CONTEXT];
+    }
+  }
+  // The Memory note is always present — inject it for installs from before this existed.
+  if (!contexts.some((c) => c.isMemory)) {
+    contexts = [...contexts, { ...DEFAULT_MEMORY_CONTEXT }];
+  }
+  return contexts;
 }
 
 export async function saveContexts(contexts: ContextNote[]): Promise<void> {

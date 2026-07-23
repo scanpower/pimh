@@ -25,6 +25,20 @@ async function resolveServerToken(server: McpServerConfig): Promise<string | nul
   }
 }
 
+const MEMORY_LINE_RE = /^memory:\s*(.+)$/i;
+
+/**
+ * Instructs Claude to end a reply with `MEMORY: <fact>` when a tool call
+ * surfaced something concise and durable (an identifier, SKU, price, or
+ * other attribute worth having on hand for future scans). Extracted lines
+ * are stripped from the displayed text and merged into the Memory context.
+ */
+const MEMORY_INSTRUCTION =
+  '\n\nIf a tool call surfaced a concise, durable fact worth remembering for future scans ' +
+  '(e.g. a product identifier/SKU and its key attributes), end your reply with one line formatted ' +
+  'exactly as "MEMORY: <fact>" — a single line, nothing else on it. Omit this line entirely if there ' +
+  'is nothing new and reusable to remember.';
+
 function contentToBlocks(content: any[]): AgentBlock[] {
   const blocks: AgentBlock[] = [];
   for (const block of content) {
@@ -55,6 +69,27 @@ function contentToBlocks(content: any[]): AgentBlock[] {
   return blocks;
 }
 
+/** Pull "MEMORY: ..." lines out of text blocks, returning the cleaned blocks and the extracted facts. */
+function extractMemory(blocks: AgentBlock[]): { blocks: AgentBlock[]; memoryNotes: string[] } {
+  const memoryNotes: string[] = [];
+  const cleaned: AgentBlock[] = [];
+  for (const block of blocks) {
+    if (block.kind !== 'text') {
+      cleaned.push(block);
+      continue;
+    }
+    const kept: string[] = [];
+    for (const line of block.text.split('\n')) {
+      const match = line.match(MEMORY_LINE_RE);
+      if (match) memoryNotes.push(match[1].trim());
+      else kept.push(line);
+    }
+    const text = kept.join('\n').trim();
+    if (text) cleaned.push({ kind: 'text', text });
+  }
+  return { blocks: cleaned, memoryNotes };
+}
+
 /**
  * Run a scan through Claude. The active context note's instructions become the
  * system prompt; enabled MCP servers are attached via the API's MCP connector so
@@ -72,9 +107,10 @@ export async function runScan(
   apiKey: string,
   settings: AppSettings,
   context: ContextNote | undefined,
+  memory: ContextNote | undefined,
   scan: ScanEvent,
   callbacks: RunCallbacks,
-): Promise<{ blocks: AgentBlock[]; stopReason: string }> {
+): Promise<{ blocks: AgentBlock[]; stopReason: string; memoryNotes: string[] }> {
   const candidates = settings.mcpServers.filter((s) => s.enabled && s.url);
   const resolved = await Promise.all(
     candidates.map(async (s) => ({ server: s, token: await resolveServerToken(s) })),
@@ -99,9 +135,12 @@ export async function runScan(
     text: `${s.name} is enabled but not connected — go to Settings and tap Connect.`,
   }));
 
+  const memoryText = memory?.instructions?.trim();
   const system =
-    context?.instructions ??
-    'The user scanned a barcode. Identify the product or content and summarize it concisely.';
+    (context?.instructions ??
+      'The user scanned a barcode. Identify the product or content and summarize it concisely.') +
+    MEMORY_INSTRUCTION +
+    (memoryText ? `\n\nKnown context from previous scans:\n${memoryText}` : '');
 
   const messages: any[] = [
     {
@@ -131,6 +170,7 @@ export async function runScan(
   }
 
   const allBlocks: AgentBlock[] = [...preflightWarnings];
+  const memoryNotes: string[] = [];
   if (allBlocks.length > 0) callbacks.onBlocks([...allBlocks]);
 
   let response: any;
@@ -148,7 +188,9 @@ export async function runScan(
       throw new Error(message);
     }
 
-    allBlocks.push(...contentToBlocks(response.content));
+    const { blocks: newBlocks, memoryNotes: newMemoryNotes } = extractMemory(contentToBlocks(response.content));
+    allBlocks.push(...newBlocks);
+    memoryNotes.push(...newMemoryNotes);
     callbacks.onBlocks([...allBlocks]);
 
     if (response.stop_reason === 'pause_turn' && continuations < MAX_CONTINUATIONS) {
@@ -167,5 +209,5 @@ export async function runScan(
     });
   }
 
-  return { blocks: allBlocks, stopReason: response.stop_reason ?? 'end_turn' };
+  return { blocks: allBlocks, stopReason: response.stop_reason ?? 'end_turn', memoryNotes };
 }

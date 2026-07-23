@@ -33,15 +33,19 @@ const BARCODE_TYPES = [
   'codabar',
 ] as const;
 
+// Cap how many memory facts accumulate before we start dropping the oldest.
+const MAX_MEMORY_LINES = 40;
+
 interface Props {
   apiKey: string;
   settings: AppSettings;
   contexts: ContextNote[];
+  onContextsChange: (contexts: ContextNote[]) => void;
   /** Bumped by the parent when the Scan tab is tapped while already active — acts like "Scan again". */
   resetSignal?: number;
 }
 
-export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: Props) {
+export default function ScanScreen({ apiKey, settings, contexts, onContextsChange, resetSignal }: Props) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanning, setScanning] = useState(true);
   const [lastScan, setLastScan] = useState<ScanEvent | null>(null);
@@ -50,6 +54,26 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
   const busyRef = useRef(false);
 
   const activeContext = contexts.find((c) => c.active);
+  const memoryContext = contexts.find((c) => c.isMemory);
+
+  const mergeMemoryNotes = useCallback(
+    (notes: string[]) => {
+      if (notes.length === 0) return;
+      const updated = contexts.map((c) => {
+        if (!c.isMemory) return c;
+        const existingLines = c.instructions
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean);
+        const newLines = notes.filter((n) => !existingLines.includes(n));
+        if (newLines.length === 0) return c;
+        const merged = [...existingLines, ...newLines].slice(-MAX_MEMORY_LINES);
+        return { ...c, instructions: merged.join('\n'), updatedAt: Date.now() };
+      });
+      onContextsChange(updated);
+    },
+    [contexts, onContextsChange],
+  );
 
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
   const toggleTool = useCallback((i: number) => {
@@ -81,10 +105,11 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
 
       setRun({ status: 'running', blocks: [] });
       try {
-        const result = await runScan(apiKey, settings, activeContext, scan, {
+        const result = await runScan(apiKey, settings, activeContext, memoryContext, scan, {
           onBlocks: (blocks) => setRun({ status: 'running', blocks }),
         });
         setRun({ status: 'done', blocks: result.blocks, stopReason: result.stopReason });
+        mergeMemoryNotes(result.memoryNotes);
       } catch (e: any) {
         setRun({
           status: 'error',
@@ -95,7 +120,7 @@ export default function ScanScreen({ apiKey, settings, contexts, resetSignal }: 
         busyRef.current = false;
       }
     },
-    [apiKey, settings, activeContext],
+    [apiKey, settings, activeContext, memoryContext, mergeMemoryNotes],
   );
 
   const onBarcodeScanned = useCallback(

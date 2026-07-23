@@ -74,7 +74,13 @@ export default function App() {
       </View>
       <View style={{ flex: 1 }}>
         {!loaded ? null : tab === 'scan' ? (
-          <ScanScreen apiKey={apiKey} settings={settings} contexts={contexts} resetSignal={scanResetSignal} />
+          <ScanScreen
+            apiKey={apiKey}
+            settings={settings}
+            contexts={contexts}
+            onContextsChange={handleContextsChange}
+            resetSignal={scanResetSignal}
+          />
         ) : tab === 'contexts' ? (
           <ContextsScreen contexts={contexts} onChange={handleContextsChange} />
         ) : (
