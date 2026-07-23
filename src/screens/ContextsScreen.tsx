@@ -50,6 +50,18 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
   const editingNote = draft?.id ? contexts.find((c) => c.id === draft.id) : null;
   const isEditingMemory = !!editingNote?.isMemory;
 
+  // Memory has no "active" concept, so tapping it expands the card in place to
+  // show its full contents instead of activating or jumping into edit mode.
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
   // Memory always sorts to the top of the list, regardless of storage order.
   const sortedContexts = useMemo(
     () => [...contexts].sort((a, b) => Number(!!b.isMemory) - Number(!!a.isMemory)),
@@ -61,6 +73,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
   };
 
   const remove = (note: ContextNote) => {
+    if (note.isMemory) return; // Memory is app-managed and can't be deleted, only cleared.
     Alert.alert('Delete context', `Delete "${note.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
       {
@@ -214,18 +227,15 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
           sortedContexts.length > 0 ? (
             <Text style={[styles.dimText, styles.hint]}>
               Tap a note to make it active. The active note is sent to Claude as instructions with every scan.
-              {'\n'}Memory is included automatically and updates itself from tool call results.
+              {'\n'}Memory is included automatically and updates itself from tool call results — tap it to expand
+              and see what's remembered.
             </Text>
           ) : null
         }
         renderItem={({ item }) => (
           <TouchableOpacity
             style={[styles.card, item.active && styles.cardActive]}
-            onPress={() =>
-              item.isMemory
-                ? setDraft(draftFromNote(item))
-                : setActive(item.id)
-            }
+            onPress={() => (item.isMemory ? toggleExpand(item.id) : setActive(item.id))}
             onLongPress={() => setDraft(draftFromNote(item))}
           >
             <View style={styles.cardHeader}>
@@ -239,9 +249,11 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                 >
                   <Text style={styles.linkText}>Edit</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => remove(item)}>
-                  <Text style={[styles.linkText, { color: colors.danger }]}>Delete</Text>
-                </TouchableOpacity>
+                {!item.isMemory && (
+                  <TouchableOpacity onPress={() => remove(item)}>
+                    <Text style={[styles.linkText, { color: colors.danger }]}>Delete</Text>
+                  </TouchableOpacity>
+                )}
                 {item.isMemory && (
                   <TouchableOpacity onPress={() => clearMemory(item)}>
                     <Text style={styles.linkText}>Clear</Text>
@@ -249,7 +261,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                 )}
               </View>
             </View>
-            <Text style={styles.cardBody} numberOfLines={3}>
+            <Text style={styles.cardBody} numberOfLines={expandedIds.has(item.id) ? undefined : 3}>
               {item.instructions ||
                 (item.isMemory ? 'No memory yet — auto-populated from tool call results after scans.' : '')}
             </Text>
