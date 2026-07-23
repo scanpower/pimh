@@ -17,7 +17,7 @@ import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-ca
 import Markdown from 'react-native-markdown-display';
 import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
 import { continueScan, runScan } from '../lib/claude';
-import { printText } from '../lib/print';
+import { printContent } from '../lib/print';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
 
@@ -99,7 +99,11 @@ export default function ScanScreen({
       ) as Extract<AgentBlock, { kind: 'tool_result' }>[];
       if (results.length === 0) return;
       try {
-        await printText(results.map((r) => r.content).join('\n\n'), settings.printer);
+        // Printed one at a time (not merged into a single job) since a result may be an
+        // actual PDF — merging a PDF data URI with plain text wouldn't make sense.
+        for (const r of results) {
+          await printContent(r.content, settings.printer);
+        }
       } catch (e: any) {
         setRun((prev) => ({
           ...prev,
