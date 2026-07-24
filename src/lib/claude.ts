@@ -143,6 +143,29 @@ function extractSignals(blocks: AgentBlock[]): {
   return { blocks: cleaned, memoryNotes, pendingPrompt };
 }
 
+// Some models occasionally fall back to writing out a fake tool call and a fake result as
+// literal text — most commonly when the system prompt tells Claude to use a tool (e.g. "use
+// ScanPower to print...") but no matching MCP server was actually attached to this request, so
+// there's no real tool for it to call. Flag it clearly rather than letting a fabricated "success"
+// message go unnoticed — no tool_use block means nothing actually happened server-side.
+const HALLUCINATED_TOOL_CALL_RE = /<function_calls>|<invoke\b|<function_results>/i;
+
+function flagHallucinatedToolCalls(blocks: AgentBlock[]): AgentBlock[] {
+  const hasRealToolUse = blocks.some((b) => b.kind === 'tool_use');
+  const hasFakeCallText = blocks.some((b) => b.kind === 'text' && HALLUCINATED_TOOL_CALL_RE.test(b.text));
+  if (hasRealToolUse || !hasFakeCallText) return blocks;
+  return [
+    {
+      kind: 'warning',
+      text:
+        "Claude's reply looks like it wrote out a fake tool call instead of actually calling one — no tool " +
+        "was really invoked, so nothing happened (e.g. nothing was printed). This usually means the MCP " +
+        "server this context expects isn't enabled and connected — check Settings.",
+    },
+    ...blocks,
+  ];
+}
+
 /**
  * Drive one full conversation turn-loop against the Messages API, starting
  * from `initialMessages`. Shared by runScan() (a fresh scan) and
@@ -239,10 +262,11 @@ async function runConversation(
     }
 
     const {
-      blocks: newBlocks,
+      blocks: extractedBlocks,
       memoryNotes: newMemoryNotes,
       pendingPrompt: newPendingPrompt,
     } = extractSignals(contentToBlocks(response.content));
+    const newBlocks = flagHallucinatedToolCalls(extractedBlocks);
     allBlocks.push(...newBlocks);
     memoryNotes.push(...newMemoryNotes);
     if (newPendingPrompt) pendingPrompt = newPendingPrompt;
