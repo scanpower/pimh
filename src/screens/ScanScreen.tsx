@@ -98,11 +98,11 @@ export default function ScanScreen({
       const results = newBlocks.filter(
         (b) => b.kind === 'tool_result' && !b.isError && b.tool && PRINT_TOOL_RE.test(b.tool),
       ) as Extract<AgentBlock, { kind: 'tool_result' }>[];
+      if (results.length === 0) return; // nothing print-related happened this step — stay quiet
       console.log(
         `[print] ${results.length} tool result(s) from a "print"-named tool ` +
           `(printer: ${settings.printer ? settings.printer.name : 'none saved'})`,
       );
-      if (results.length === 0) return;
       // Printed one at a time (not merged into a single job) since a result may be an actual
       // PDF — merging a PDF data URI with plain text wouldn't make sense. Each attempt gets its
       // own print_log block (shown alongside Tool result cards) regardless of outcome: expo-print
