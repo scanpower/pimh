@@ -1,6 +1,6 @@
 # pimh — Physical Integration Mini Harness
 
-An Expo / React Native (TypeScript) iOS app for ScanPower that turns a phone into a
+An Expo / React Native (TypeScript) iOS app for warehouses that turns a phone into a
 barcode-driven harness: scan a 1D barcode, run it through a user-selected **context
 note**, and render the result — including printing labels/documents when the work
 calls for it.
