@@ -30,7 +30,9 @@ function base64Encode(input: string): string {
 }
 
 function base64Decode(input: string): string {
-  const clean = input.replace(/[^A-Za-z0-9+/]/g, '');
+  // JWT payloads are base64url — '-' and '_' stand in for '+' and '/'. Translate them back
+  // before decoding; stripping them as "invalid" instead silently corrupts the payload.
+  const clean = input.replace(/-/g, '+').replace(/_/g, '/').replace(/[^A-Za-z0-9+/]/g, '');
   const lookup = (c: string) => BASE64_CHARS.indexOf(c);
   let out = '';
   for (let i = 0; i < clean.length; i += 4) {
@@ -52,6 +54,54 @@ function base64Decode(input: string): string {
  */
 function normalizeSmartQuotes(text: string): string {
   return text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+}
+
+/** A template string that is nothing but a single {{token}}, e.g. "{{quantity}}". */
+const WHOLE_TOKEN_RE = /^\{\{\w+\}\}$/;
+
+/**
+ * Coerce a substituted value to the type the schema declares, but only when the template was
+ * exactly one token (so the value isn't part of a larger string). Identifiers that merely look
+ * numeric — a barcode with a leading zero — keep their string form unless the schema actually
+ * asks for a number, which is why this consults the schema instead of sniffing the value.
+ */
+function coerceToSchemaType(resolved: string, template: string, schema: any): string | number | boolean {
+  if (!WHOLE_TOKEN_RE.test(template)) return resolved;
+  const type = schema?.type;
+  if (type === 'number' || type === 'integer') {
+    const n = Number(resolved);
+    return resolved.trim() !== '' && Number.isFinite(n) ? n : resolved;
+  }
+  if (type === 'boolean') {
+    if (/^\s*true\s*$/i.test(resolved)) return true;
+    if (/^\s*false\s*$/i.test(resolved)) return false;
+  }
+  return resolved;
+}
+
+/**
+ * Substitute {{...}} tokens into an already-parsed JSON body, walking the parsed value rather
+ * than the raw template text. This is what keeps a substituted value from introducing JSON
+ * structure: a quote or backslash inside a product title stays inside the string it belongs to
+ * instead of terminating it, so neither a scanned barcode nor a remembered fact can reshape the
+ * request. `schema` is walked in parallel purely to type-coerce whole-token values.
+ */
+function substituteInJson(node: any, schema: any, values: Record<string, string>): any {
+  if (typeof node === 'string') {
+    return coerceToSchemaType(substituteFields(node, values), node, schema);
+  }
+  if (Array.isArray(node)) {
+    return node.map((item) => substituteInJson(item, schema?.items, values));
+  }
+  if (node && typeof node === 'object') {
+    const props = schema?.properties ?? {};
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(node)) {
+      out[key] = substituteInJson(value, props[key], values);
+    }
+    return out;
+  }
+  return node;
 }
 
 /** Decode a JWT's payload to read its `exp` claim, without verifying the signature. */
@@ -216,14 +266,17 @@ export async function callOperation(
 
   let body: string | undefined;
   if (bodyTemplate && bodyTemplate.trim()) {
-    const resolvedBody = normalizeSmartQuotes(substituteFields(bodyTemplate, values));
+    // Parse the template first, then substitute into the parsed value — never splice raw values
+    // into JSON text (see substituteInJson). Smart quotes are normalized on the template only,
+    // so typographic quotes inside the substituted data are left as the data the API should get.
+    const template = normalizeSmartQuotes(bodyTemplate);
+    let parsed: any;
     try {
-      body = JSON.stringify(JSON.parse(resolvedBody));
+      parsed = JSON.parse(template);
     } catch (e: any) {
-      throw new Error(
-        `Body template is not valid JSON after substitution: ${e?.message ?? e}\n\nResolved body:\n${resolvedBody}`,
-      );
+      throw new Error(`Body template is not valid JSON: ${e?.message ?? e}\n\nTemplate:\n${template}`);
     }
+    body = JSON.stringify(substituteInJson(parsed, op.requestBodySchema, values));
     headers['Content-Type'] = 'application/json';
   }
 
@@ -232,7 +285,20 @@ export async function callOperation(
 
   console.log(`[directApi] ${op.method.toUpperCase()} ${url}`);
   console.log(`[directApi] ${op.operationId} request body: ${body ?? '(none)'}`);
-  const res = await fetch(url, { method: op.method.toUpperCase(), headers, body });
+
+  const send = () => fetch(url, { method: op.method.toUpperCase(), headers, body });
+  let res = await send();
+
+  // A cached token can be rejected before we believe it expires — it may have been revoked
+  // server-side, or its exp claim may not have been readable. Drop it, mint a fresh one and
+  // retry exactly once, so an expired session doesn't 401 every call until the app restarts.
+  if (res.status === 401 && op.security === 'bearer') {
+    console.log(`[directApi] ${op.operationId} got 401 — re-minting the session token and retrying once`);
+    clearSessionToken(op.specId);
+    headers.Authorization = `Bearer ${await getBearerToken(op.specId, settings)}`;
+    res = await send();
+  }
+
   const contentType = res.headers.get('content-type') ?? '';
   const text = await res.text();
   if (!res.ok) {
