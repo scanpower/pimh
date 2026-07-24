@@ -1,4 +1,4 @@
-import { AgentBlock, AppSettings, ContextNote, McpServerConfig, PendingPrompt, ScanEvent } from '../types';
+import { AgentBlock, AppSettings, ContextNote, ContextPromptField, McpServerConfig, PendingPrompt, ScanEvent } from '../types';
 import { getValidAccessToken } from './mcpOAuth';
 
 const MAX_CONTINUATIONS = 5;
@@ -39,6 +39,55 @@ export function substituteFields(template: string, values: Record<string, string
   return template.replace(/\{\{(\w+)\}\}/g, (match, id) => (id in values ? values[id] : match));
 }
 
+function slugifyLabel(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+}
+
+/**
+ * Prompt field values are collected keyed by field id (e.g. "field_1"), but it's natural to
+ * reference a field by its label instead when hand-writing a {{...}} template — add a
+ * label-slug alias for each field (e.g. "Quantity" -> {{quantity}}) alongside its id, so
+ * either works. Label aliases never override an existing id/key with the same name.
+ */
+export function expandFieldAliases(
+  promptFields: ContextPromptField[] | undefined,
+  fieldValues: Record<string, string> | undefined,
+): Record<string, string> {
+  const out: Record<string, string> = { ...(fieldValues ?? {}) };
+  for (const field of promptFields ?? []) {
+    const value = fieldValues?.[field.id];
+    if (value === undefined) continue;
+    const slug = slugifyLabel(field.label);
+    if (slug && !(slug in out)) out[slug] = value;
+  }
+  return out;
+}
+
+const MEMORY_FACT_RE = /^\s*([A-Za-z][A-Za-z0-9 _-]{0,39}?)\s*:\s*(.+?)\s*$/;
+
+/**
+ * Parse "Key: value" style lines out of the Memory context's free-text notes (the format
+ * Claude's own MEMORY: signal lines tend to use, e.g. "ASIN: B08XYZ123") into a lookup keyed
+ * the same way prompt-field labels are — so a {{fieldId}}-style template can also pull in a
+ * remembered fact by name (e.g. {{asin}}) when nothing else supplies it. Lines that don't look
+ * like "key: value" are skipped; later lines win on a repeated key, matching how Memory keeps
+ * its most recent facts toward the end.
+ */
+export function parseMemoryFacts(memoryText: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of (memoryText ?? '').split('\n')) {
+    const match = line.match(MEMORY_FACT_RE);
+    if (!match) continue;
+    const slug = slugifyLabel(match[1]);
+    if (slug) out[slug] = match[2].trim();
+  }
+  return out;
+}
+
 const MEMORY_LINE_RE = /^memory:\s*(.+)$/i;
 const ASK_LINE_RE = /^ask:\s*(.+)$/i;
 const CHOOSE_LINE_RE = /^choose:\s*(.+)$/i;
@@ -53,12 +102,15 @@ const CHOOSE_LINE_RE = /^choose:\s*(.+)$/i;
  */
 const SIGNAL_INSTRUCTION =
   '\n\nYou may end your reply with special signal lines (each alone on its own line, at the very end):\n' +
-  '- "MEMORY: <fact>" — a concise, durable fact worth remembering for future scans (e.g. a product ' +
-  'identifier and its key attributes). Whenever a tool call returns identifying details about the scanned ' +
-  'item — SKU, ASIN, UPC, product name, quantity, location/bin, price, condition, or similar — you MUST ' +
-  'include one MEMORY line per distinct fact worth keeping, even if the answer already states it in prose. ' +
-  'Skip a fact only if it is already listed verbatim in "Known context from previous scans" below, or if ' +
-  'this scan used no tools and produced nothing new and reusable.\n' +
+  '- "MEMORY: <key>: <value>" — a concise, durable fact worth remembering for future scans, phrased as a ' +
+  'short lowercase key, a colon, then the value (e.g. "MEMORY: asin: B08XYZ123", "MEMORY: condition: New") ' +
+  '— one fact per line, one key per line. Prefer short conventional keys (asin, sku, upc, title, condition, ' +
+  'quantity, price, location) over restating them in a sentence, since these get parsed back out by key ' +
+  'for reuse elsewhere in the app. Whenever a tool call returns identifying details about the scanned item ' +
+  '— SKU, ASIN, UPC, product name, quantity, location/bin, price, condition, or similar — you MUST include ' +
+  'one MEMORY line per distinct fact worth keeping, even if the answer already states it in prose. Skip a ' +
+  'fact only if it is already listed verbatim in "Known context from previous scans" below, or if this scan ' +
+  'used no tools and produced nothing new and reusable.\n' +
   '- "ASK: <question>" — if you need the user to type a short answer before you can finish (e.g. a ' +
   'quantity or a clarification), ask exactly one question this way instead of guessing.\n' +
   '- "CHOOSE: <question> | <option 1> | <option 2> | ..." — if the user needs to pick from a small set ' +
@@ -342,8 +394,15 @@ export async function runScan(
   fieldValues: Record<string, string> | undefined,
   callbacks: RunCallbacks,
 ): Promise<RunResult> {
-  const resolvedContext =
-    context && fieldValues ? { ...context, instructions: substituteFields(context.instructions, fieldValues) } : context;
+  const resolvedContext = context
+    ? {
+        ...context,
+        instructions: substituteFields(context.instructions, {
+          ...parseMemoryFacts(memory?.instructions),
+          ...expandFieldAliases(context.promptFields, fieldValues),
+        }),
+      }
+    : context;
 
   const fieldLines =
     context?.promptFields && fieldValues

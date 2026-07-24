@@ -17,7 +17,9 @@ import {
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
 import Markdown from 'react-native-markdown-display';
 import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
-import { continueScan, runScan } from '../lib/claude';
+import { continueScan, expandFieldAliases, parseMemoryFacts, runScan } from '../lib/claude';
+import { getOperation } from '../lib/apiSpecs';
+import { callOperation } from '../lib/directApi';
 import { printContent } from '../lib/print';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
@@ -175,6 +177,41 @@ export default function ScanScreen({
       setScanning(false);
       setExpandedTools(new Set());
       setAnswerText('');
+
+      // A context wired to a direct API operation bypasses Claude/MCP entirely — it's a
+      // deterministic REST call, so there's no model judgment to apply.
+      if (activeContext?.apiOperation) {
+        const { specId, operationId, paramValues, bodyTemplate } = activeContext.apiOperation;
+        setRun({ status: 'running', blocks: [] });
+        try {
+          const op = getOperation(specId, operationId);
+          if (!op) throw new Error(`Operation "${operationId}" not found in spec "${specId}".`);
+          const values: Record<string, string> = {
+            ...parseMemoryFacts(memoryContext?.instructions),
+            ...expandFieldAliases(activeContext.promptFields, fieldValues),
+            scan: scan.data,
+          };
+          const result = await callOperation(op, settings, values, paramValues, bodyTemplate);
+          // maybePrintToolResults triggers off the tool name containing "print" — operationIds
+          // like "itemLabel" don't, even though the spec tags it "Printing", so fall back to the
+          // operation's own tags to decide whether this result should auto-print.
+          const printTag = (op.tags ?? []).find((t) => PRINT_TOOL_RE.test(t));
+          const tool = PRINT_TOOL_RE.test(operationId) || !printTag ? operationId : `${operationId} (${printTag})`;
+          const block: AgentBlock = {
+            kind: 'tool_result',
+            content: result.text,
+            isError: result.status < 200 || result.status >= 300,
+            tool,
+          };
+          setRun({ status: 'done', blocks: [block] });
+          void maybePrintToolResults([block]);
+        } catch (e: any) {
+          setRun({ status: 'error', blocks: [], error: e?.message ?? String(e) });
+        } finally {
+          busyRef.current = false;
+        }
+        return;
+      }
 
       if (!apiKey) {
         setRun({

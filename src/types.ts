@@ -32,6 +32,22 @@ export interface ContextNote {
    * Claude alongside the scan.
    */
   promptFields?: ContextPromptField[];
+  /**
+   * An operation from a bundled OpenAPI spec (see src/lib/apiSpecs.ts) this
+   * context calls directly, bypassing Claude/MCP entirely — for deterministic
+   * lookups/actions that don't need model judgment.
+   */
+  apiOperation?: {
+    specId: string;
+    operationId: string;
+    /**
+     * Template per path/query/header parameter name — same {{fieldId}} substitution as
+     * `instructions`, plus a reserved {{scan}} token for the scanned barcode value.
+     */
+    paramValues?: Record<string, string>;
+    /** JSON request body template (POST/PUT/PATCH operations) — substituted, then JSON-parsed. */
+    bodyTemplate?: string;
+  };
 }
 
 export type McpAuthType = 'none' | 'token' | 'oauth';

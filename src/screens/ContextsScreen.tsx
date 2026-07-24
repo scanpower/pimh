@@ -17,6 +17,8 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { ContextNote, ContextPromptField } from '../types';
 import { parseImportedContexts } from '../lib/storage';
+import { listAllOperations } from '../lib/apiSpecs';
+import { buildDefaultBodyTemplate, buildDefaultParamValues } from '../lib/apiDefaults';
 import { colors } from '../ui/theme';
 
 interface Props {
@@ -29,10 +31,17 @@ interface Draft {
   name: string;
   instructions: string;
   promptFields: ContextPromptField[];
+  apiOperation?: ContextNote['apiOperation'];
 }
 
 function draftFromNote(item: ContextNote): Draft {
-  return { id: item.id, name: item.name, instructions: item.instructions, promptFields: item.promptFields ?? [] };
+  return {
+    id: item.id,
+    name: item.name,
+    instructions: item.instructions,
+    promptFields: item.promptFields ?? [],
+    apiOperation: item.apiOperation,
+  };
 }
 
 function nextFieldId(existing: string[]): string {
@@ -47,8 +56,19 @@ function nextFieldId(existing: string[]): string {
 
 export default function ContextsScreen({ contexts, onChange }: Props) {
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const editingNote = draft?.id ? contexts.find((c) => c.id === draft.id) : null;
   const isEditingMemory = !!editingNote?.isMemory;
+  const allOperations = useMemo(() => listAllOperations(), []);
+  const selectedOp = draft?.apiOperation
+    ? allOperations.find(
+        (o) => o.specId === draft.apiOperation!.specId && o.operationId === draft.apiOperation!.operationId,
+      )
+    : undefined;
+
+  const updateApiOperation = (patch: Partial<NonNullable<Draft['apiOperation']>>) => {
+    setDraft((d) => (d && d.apiOperation ? { ...d, apiOperation: { ...d.apiOperation, ...patch } } : d));
+  };
 
   // Memory has no "active" concept, so tapping it expands the card in place to
   // show its full contents instead of activating or jumping into edit mode.
@@ -104,7 +124,14 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
       onChange(
         contexts.map((c) =>
           c.id === draft.id
-            ? { ...c, name, instructions: draft.instructions, promptFields: draft.promptFields, updatedAt: now }
+            ? {
+                ...c,
+                name,
+                instructions: draft.instructions,
+                promptFields: draft.promptFields,
+                apiOperation: draft.apiOperation,
+                updatedAt: now,
+              }
             : c,
         ),
       );
@@ -113,6 +140,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
         id: `ctx-${now}-${Math.random().toString(36).slice(2, 8)}`,
         name,
         promptFields: draft.promptFields,
+        apiOperation: draft.apiOperation,
         instructions: draft.instructions,
         // Memory always exists but is never "active" in the persona sense, so
         // check for a real active note rather than an empty list.
@@ -350,6 +378,98 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                 </TouchableOpacity>
               </View>
             )}
+            {!isEditingMemory && draft && (
+              <View style={{ marginTop: 16 }}>
+                <Text style={styles.sectionLabel}>Direct API call (optional)</Text>
+                <Text style={[styles.dimText, styles.sectionHelp]}>
+                  Skip Claude entirely and call this operation straight from the scan — for lookups/actions
+                  that don't need model judgment.
+                </Text>
+                {draft.apiOperation ? (
+                  <View style={styles.fieldRow}>
+                    <Text style={{ color: colors.text, fontWeight: '600' }}>
+                      {draft.apiOperation.operationId}
+                    </Text>
+                    <Text style={styles.dimText}>{selectedOp?.summary ?? ''}</Text>
+                    <View style={{ flexDirection: 'row', gap: 14, marginTop: 6 }}>
+                      <TouchableOpacity onPress={() => setPickerOpen(true)}>
+                        <Text style={styles.linkText}>Change</Text>
+                      </TouchableOpacity>
+                      {selectedOp && (
+                        <TouchableOpacity
+                          onPress={() =>
+                            updateApiOperation({
+                              paramValues: buildDefaultParamValues(selectedOp.parameters, draft.promptFields),
+                              bodyTemplate: selectedOp.requestBodySchema
+                                ? buildDefaultBodyTemplate(selectedOp.requestBodySchema, draft.promptFields)
+                                : undefined,
+                            })
+                          }
+                        >
+                          <Text style={styles.linkText}>Auto-fill from scan/fields</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity onPress={() => setDraft((d) => (d ? { ...d, apiOperation: undefined } : d))}>
+                        <Text style={[styles.linkText, { color: colors.danger }]}>Clear</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {selectedOp && selectedOp.parameters.length > 0 && (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={[styles.dimText, { marginBottom: 6 }]}>
+                          Parameters — use {'{{'}scan{'}}'} for the barcode, {'{{'}fieldId{'}}'} for a prompt field, or a
+                          remembered fact's name (e.g. {'{{'}asin{'}}'}) from Memory:
+                        </Text>
+                        {selectedOp.parameters.map((param) => (
+                          <View key={param.name} style={{ marginBottom: 8 }}>
+                            <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 3 }}>
+                              {param.name} ({param.in}
+                              {param.required ? ', required' : ''})
+                            </Text>
+                            <TextInput
+                              style={styles.input}
+                              placeholder="{{scan}}"
+                              placeholderTextColor={colors.textDim}
+                              value={draft.apiOperation?.paramValues?.[param.name] ?? ''}
+                              onChangeText={(v) =>
+                                updateApiOperation({
+                                  paramValues: { ...draft.apiOperation?.paramValues, [param.name]: v },
+                                })
+                              }
+                              autoCapitalize="none"
+                              autoCorrect={false}
+                            />
+                          </View>
+                        ))}
+                      </View>
+                    )}
+
+                    {selectedOp?.requestBodySchema && (
+                      <View style={{ marginTop: 10 }}>
+                        <Text style={[styles.dimText, { marginBottom: 6 }]}>JSON request body template:</Text>
+                        <TextInput
+                          style={[styles.input, styles.multiline]}
+                          placeholder={'{"barcode_value":"{{scan}}"}'}
+                          placeholderTextColor={colors.textDim}
+                          value={draft.apiOperation?.bodyTemplate ?? ''}
+                          onChangeText={(v) => updateApiOperation({ bodyTemplate: v })}
+                          multiline
+                          textAlignVertical="top"
+                          autoCapitalize="none"
+                          autoCorrect={false}
+                          spellCheck={false}
+                          keyboardType="ascii-capable"
+                        />
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.secondaryButton} onPress={() => setPickerOpen(true)}>
+                    <Text style={styles.secondaryButtonText}>Choose operation</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
           </ScrollView>
           <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
             <TouchableOpacity style={[styles.secondaryButton, { flex: 1 }]} onPress={() => setDraft(null)}>
@@ -359,6 +479,53 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
               <Text style={styles.primaryButtonText}>Save</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Nested inside the editor's own Modal (rather than a sibling) — two sibling
+              top-level Modals don't reliably stack on iOS, so opening this one while the
+              editor is open would stay hidden behind it until the editor closed. */}
+          <Modal visible={pickerOpen} animationType="slide" onRequestClose={() => setPickerOpen(false)}>
+            <View style={styles.modal}>
+              <Text style={styles.modalTitle}>Choose an API operation</Text>
+              <FlatList
+                style={{ flex: 1 }}
+                data={allOperations}
+                keyExtractor={(o) => `${o.specId}:${o.operationId}`}
+                contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.fieldRow}
+                    onPress={() => {
+                      setDraft((d) =>
+                        d
+                          ? {
+                              ...d,
+                              apiOperation: {
+                                specId: item.specId,
+                                operationId: item.operationId,
+                                paramValues: buildDefaultParamValues(item.parameters, d.promptFields),
+                                bodyTemplate: item.requestBodySchema
+                                  ? buildDefaultBodyTemplate(item.requestBodySchema, d.promptFields)
+                                  : undefined,
+                              },
+                            }
+                          : d,
+                      );
+                      setPickerOpen(false);
+                    }}
+                  >
+                    <Text style={{ color: colors.textDim, fontSize: 11 }}>
+                      {item.specLabel} · {item.method.toUpperCase()} {item.path}
+                    </Text>
+                    <Text style={{ color: colors.text, fontWeight: '600', marginTop: 2 }}>{item.operationId}</Text>
+                    {item.summary ? <Text style={styles.dimText}>{item.summary}</Text> : null}
+                  </TouchableOpacity>
+                )}
+              />
+              <TouchableOpacity style={[styles.secondaryButton, { marginTop: 12 }]} onPress={() => setPickerOpen(false)}>
+                <Text style={styles.secondaryButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </Modal>
         </KeyboardAvoidingView>
       </Modal>
     </View>
