@@ -67,6 +67,9 @@ const SIGNAL_INSTRUCTION =
 
 function contentToBlocks(content: any[]): AgentBlock[] {
   const blocks: AgentBlock[] = [];
+  // Each mcp_tool_result immediately follows the mcp_tool_use it answers within a turn's
+  // content array, so track the most recently seen tool name to label results with it.
+  let lastToolName: string | undefined;
   for (const block of content) {
     switch (block.type) {
       case 'text':
@@ -76,6 +79,7 @@ function contentToBlocks(content: any[]): AgentBlock[] {
       // stays enabled in the request (it improves response quality), but the
       // reasoning itself is never shown in the app UI.
       case 'mcp_tool_use':
+        lastToolName = block.name;
         blocks.push({
           kind: 'tool_use',
           server: block.server_name ?? 'mcp',
@@ -87,7 +91,7 @@ function contentToBlocks(content: any[]): AgentBlock[] {
         const parts = Array.isArray(block.content)
           ? block.content.map((c: any) => (c.type === 'text' ? c.text : JSON.stringify(c))).join('\n')
           : String(block.content ?? '');
-        blocks.push({ kind: 'tool_result', content: parts, isError: !!block.is_error });
+        blocks.push({ kind: 'tool_result', content: parts, isError: !!block.is_error, tool: lastToolName });
         break;
       }
     }

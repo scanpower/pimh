@@ -94,7 +94,8 @@ export interface ScanEvent {
 export type AgentBlock =
   | { kind: 'text'; text: string }
   | { kind: 'tool_use'; server: string; tool: string; input: string }
-  | { kind: 'tool_result'; content: string; isError: boolean }
+  /** `tool` is the name of the tool call this result answers, when known (see contentToBlocks). */
+  | { kind: 'tool_result'; content: string; isError: boolean; tool?: string }
   | { kind: 'warning'; text: string }
   /** Diagnostic record of one printContent() call — shown alongside tool results for debugging. */
   | { kind: 'print_log'; text: string; isError: boolean };

@@ -22,9 +22,10 @@ import { printContent } from '../lib/print';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
 
-// Contexts opt into auto-printing tool results by mentioning "print" (as a whole word,
-// so "printer" or "blueprint" don't accidentally trigger it) anywhere in their instructions.
-const PRINT_TRIGGER_RE = /\bprint\b/i;
+// A tool result is auto-printed when the tool that produced it has "print" in its name
+// (e.g. print_item_labels) — a substring match, since tool names are snake_case identifiers
+// rather than prose (no need for the word-boundary care that free-text instructions would need).
+const PRINT_TOOL_RE = /print/i;
 
 // 1D symbologies only, per app requirements.
 const BARCODE_TYPES = [
@@ -90,18 +91,15 @@ export default function ScanScreen({
     [contexts, onContextsChange],
   );
 
-  // If the active context's instructions mention "print", send this step's tool
-  // results (not the whole conversation) straight to the configured printer.
+  // Any tool result produced by a tool whose name contains "print" (e.g. print_item_labels)
+  // is sent straight to the configured printer — independent of the active context's wording.
   const maybePrintToolResults = useCallback(
     async (newBlocks: AgentBlock[]) => {
-      if (!activeContext || !PRINT_TRIGGER_RE.test(activeContext.instructions)) {
-        return;
-      }
       const results = newBlocks.filter(
-        (b) => b.kind === 'tool_result' && !b.isError,
+        (b) => b.kind === 'tool_result' && !b.isError && b.tool && PRINT_TOOL_RE.test(b.tool),
       ) as Extract<AgentBlock, { kind: 'tool_result' }>[];
       console.log(
-        `[print] context "${activeContext.name}" mentions "print" — ${results.length} tool result(s) to check ` +
+        `[print] ${results.length} tool result(s) from a "print"-named tool ` +
           `(printer: ${settings.printer ? settings.printer.name : 'none saved'})`,
       );
       if (results.length === 0) return;
@@ -120,7 +118,7 @@ export default function ScanScreen({
               {
                 kind: 'print_log',
                 isError: false,
-                text: `[${i + 1}/${results.length}] → ${call.target}\nmode: ${call.mode}\n${call.detail}\nPrint.printAsync() resolved.`,
+                text: `[${i + 1}/${results.length}] ${r.tool} → ${call.target}\nmode: ${call.mode}\n${call.detail}\nPrint.printAsync() resolved.`,
               },
             ],
           }));
@@ -136,8 +134,9 @@ export default function ScanScreen({
                 kind: 'print_log',
                 isError: true,
                 text:
-                  (call ? `[${i + 1}/${results.length}] → ${call.target}\nmode: ${call.mode}\n${call.detail}\n` : '') +
-                  `FAILED: ${detail}`,
+                  (call
+                    ? `[${i + 1}/${results.length}] ${r.tool} → ${call.target}\nmode: ${call.mode}\n${call.detail}\n`
+                    : '') + `FAILED: ${detail}`,
               },
             ],
           }));
@@ -147,7 +146,7 @@ export default function ScanScreen({
         }
       }
     },
-    [activeContext, settings.printer],
+    [settings.printer],
   );
 
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
