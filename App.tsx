@@ -105,7 +105,7 @@ export default function App() {
         <Text style={styles.headerTitle}>pimh</Text>
         <View style={styles.headerSubRow}>
           <Text style={styles.headerSub}>scan → context → </Text>
-          <ShimmerText active={claudeRunning} style={[styles.headerSub, styles.headerSubClaude]}>
+          <ShimmerText active={claudeRunning} style={[styles.headerSub, claudeRunning && styles.headerSubClaude]}>
             Claude
           </ShimmerText>
         </View>
