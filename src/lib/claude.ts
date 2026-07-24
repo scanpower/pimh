@@ -252,18 +252,37 @@ async function runConversation(
 
   let response: any;
   let continuations = 0;
+  const runStart = Date.now();
+  console.log(
+    `[claude] starting request — model=${settings.model}, mcp servers=${mcpServers.length}, ` +
+      `messages=${messages.length}`,
+  );
 
   while (true) {
-    const res = await fetch(API_URL, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ ...baseBody, messages }),
-    });
+    const requestNumber = continuations + 1;
+    const reqStart = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(API_URL, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ...baseBody, messages }),
+      });
+    } catch (e: any) {
+      console.error(`[claude] request ${requestNumber} network error after ${Date.now() - reqStart}ms:`, e);
+      throw e;
+    }
     response = await res.json();
+    const reqElapsed = Date.now() - reqStart;
     if (!res.ok) {
       const message = response?.error?.message ?? `Request failed (${res.status})`;
+      console.error(`[claude] request ${requestNumber} failed after ${reqElapsed}ms: HTTP ${res.status} — ${message}`);
       throw new Error(message);
     }
+    console.log(
+      `[claude] request ${requestNumber} resolved in ${reqElapsed}ms — stop_reason=${response.stop_reason}, ` +
+        `usage=${JSON.stringify(response.usage ?? {})}`,
+    );
 
     const {
       blocks: extractedBlocks,
@@ -284,6 +303,10 @@ async function runConversation(
     }
     break;
   }
+
+  console.log(
+    `[claude] conversation turn finished in ${Date.now() - runStart}ms across ${continuations + 1} request(s)`,
+  );
 
   if (response.stop_reason === 'refusal') {
     allBlocks.push({
