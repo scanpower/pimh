@@ -467,6 +467,8 @@ export default function ScanScreen({
         scrollEventThrottle={16}
         onLayout={(e) => setResultsViewportHeight(e.nativeEvent.layout.height)}
         onContentSizeChange={(_, height) => setResultsContentHeight(height)}
+        keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets
       >
         {lastScan && lastScan.data && (
           <View style={styles.scanChip}>
