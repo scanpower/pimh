@@ -539,7 +539,7 @@ export default function ScanScreen({
       <KeyboardAvoidingView style={styles.modal} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <Text style={styles.modalTitle}>{activeContext?.name}</Text>
         <Text style={[styles.dimText, { marginBottom: 4 }]}>Fill in a few details before this scan runs.</Text>
-        <ScrollView style={{ flex: 1 }}>
+        <ScrollView style={{ flex: 1 }} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets>
           {pendingFieldForm?.fields.map((field) => (
             <View key={field.id} style={styles.fieldGroup}>
               <Text style={styles.fieldLabel}>{field.label}</Text>
