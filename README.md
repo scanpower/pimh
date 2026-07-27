@@ -173,6 +173,9 @@ npx tsc --noEmit
   connector (`mcp_servers` + `mcp_toolset`), OpenAI's is a `type: "mcp"` entry in `tools`
   on `/v1/responses` sent with `require_approval: "never"`. A conversation can't be
   continued across a model switch, since the transcript is in the provider's own format.
+- OpenAI requests are sent with `store: false`, so scans aren't retained server-side.
+  Continuation replays prior output items through `input` rather than referencing a stored
+  response, so nothing depends on that retention.
 - API keys (Claude and OpenAI, stored separately) and MCP OAuth tokens are kept in the
   device Keychain via `expo-secure-store`, never in plain AsyncStorage. Direct-API session tokens are held
   in memory only.

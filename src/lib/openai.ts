@@ -86,6 +86,11 @@ export async function runOpenAiConversation(
     model: settings.model,
     instructions: buildSystemPrompt(context, memory),
     input,
+    // Scans carry customer and inventory data, and the API would otherwise retain each
+    // response server-side by default. Nothing here depends on that retention: continuation
+    // replays the prior output items through `input` rather than referencing a stored
+    // response by id, so opting out costs no functionality.
+    store: false,
   };
   if (tools.length > 0) body.tools = tools;
 
