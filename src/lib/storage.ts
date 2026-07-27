@@ -2,11 +2,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
 import { AppSettings, ContextNote, McpServerConfig, StoredOAuthTokens } from '../types';
 
-const CONTEXTS_KEY = 'midg.contexts.v1';
-const SETTINGS_KEY = 'midg.settings.v1';
-const API_KEY_KEY = 'midg.anthropic_api_key';
-const OPENAI_API_KEY_KEY = 'midg.openai_api_key';
-const OAUTH_KEY_PREFIX = 'midg.mcp_oauth.';
+const CONTEXTS_KEY = 'pimh.contexts.v1';
+const SETTINGS_KEY = 'pimh.settings.v1';
+const API_KEY_KEY = 'pimh.anthropic_api_key';
+const OPENAI_API_KEY_KEY = 'pimh.openai_api_key';
+const OAUTH_KEY_PREFIX = 'pimh.mcp_oauth.';
+
 
 export const DEFAULT_SETTINGS: AppSettings = {
   model: 'claude-opus-4-8',
@@ -150,6 +151,32 @@ export async function saveOAuthTokens(serverId: string, tokens: StoredOAuthToken
 
 export async function clearOAuthTokens(serverId: string): Promise<void> {
   await SecureStore.deleteItemAsync(oauthKey(serverId));
+}
+
+/** Delete a Keychain item, tolerating one that was never written. */
+async function deleteSecure(key: string): Promise<void> {
+  try {
+    await SecureStore.deleteItemAsync(key);
+  } catch {
+    // Nothing stored under that key — nothing to undo.
+  }
+}
+
+/**
+ * Erase everything this app has persisted: contexts and Memory, the settings blob, both API
+ * keys and every MCP server's OAuth tokens. Irreversible, and the caller is responsible for
+ * confirming intent first (see SettingsScreen) and for reloading its own state afterwards.
+ *
+ * `servers` is required because SecureStore can't be enumerated — OAuth tokens are keyed per
+ * server id, so the configured servers are the only way to know which entries exist.
+ */
+export async function resetAllData(servers: McpServerConfig[]): Promise<void> {
+  await Promise.all([
+    AsyncStorage.multiRemove([CONTEXTS_KEY, SETTINGS_KEY]),
+    deleteSecure(API_KEY_KEY),
+    deleteSecure(OPENAI_API_KEY_KEY),
+    ...servers.map((s) => clearOAuthTokens(s.id)),
+  ]);
 }
 
 /** Parse imported context notes. Accepts a JSON array of notes or a single note object. */

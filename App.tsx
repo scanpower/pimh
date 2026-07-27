@@ -10,6 +10,7 @@ import {
   loadContexts,
   loadOpenAiKey,
   loadSettings,
+  resetAllData,
   saveApiKey,
   saveOpenAiKey,
   saveContexts,
@@ -18,6 +19,7 @@ import {
 import { AppSettings, ContextNote } from './src/types';
 import { shortLabelFor } from './src/lib/models';
 import { setDebugLogging } from './src/lib/debugLog';
+import { clearAllTokens } from './src/lib/directApi';
 import { colors } from './src/ui/theme';
 
 type Tab = 'scan' | 'contexts' | 'settings';
@@ -119,6 +121,21 @@ export default function App() {
     saveOpenAiKey(key);
   }, []);
 
+  /**
+   * Erase everything and return to a first-launch state. The confirmation lives in
+   * SettingsScreen; by the time this runs the user has agreed twice. State is re-read from
+   * storage rather than assumed, so whatever the loaders consider "default" is what shows.
+   */
+  const handleResetAppData = useCallback(async () => {
+    await resetAllData(settings.mcpServers);
+    clearAllTokens();
+    const [ctx, s] = await Promise.all([loadContexts(), loadSettings()]);
+    setContexts(ctx);
+    setSettings(s);
+    setApiKey('');
+    setOpenAiKey('');
+  }, [settings.mcpServers]);
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
@@ -152,6 +169,7 @@ export default function App() {
             onOpenAiKeyChange={handleOpenAiKeyChange}
             settings={settings}
             onSettingsChange={handleSettingsChange}
+            onResetAppData={handleResetAppData}
           />
         )}
       </View>

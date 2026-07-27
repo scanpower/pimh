@@ -213,6 +213,12 @@ function headerTokenKey(specId: string, header: string): string {
   return `${specId}:${header}`;
 }
 
+/** Drop every in-memory token, for a full app-data reset. */
+export function clearAllTokens(): void {
+  sessionTokens.clear();
+  headerTokens.clear();
+}
+
 export function clearHeaderTokens(specId: string): void {
   for (const key of [...headerTokens.keys()]) {
     if (key.startsWith(`${specId}:`)) headerTokens.delete(key);

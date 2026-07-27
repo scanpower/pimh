@@ -37,6 +37,8 @@ interface Props {
   onOpenAiKeyChange: (key: string) => void;
   settings: AppSettings;
   onSettingsChange: (settings: AppSettings) => void;
+  /** Erases all persisted data. SettingsScreen owns the confirmation flow. */
+  onResetAppData: () => Promise<void>;
 }
 
 export default function SettingsScreen({
@@ -46,11 +48,13 @@ export default function SettingsScreen({
   onOpenAiKeyChange,
   settings,
   onSettingsChange,
+  onResetAppData,
 }: Props) {
   const [keyDraft, setKeyDraft] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [openAiDraft, setOpenAiDraft] = useState(openAiKey);
   const [showOpenAiKey, setShowOpenAiKey] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [selectingPrinter, setSelectingPrinter] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
 
@@ -79,6 +83,51 @@ export default function SettingsScreen({
     } finally {
       setTestPrinting(false);
     }
+  };
+
+  const runReset = async () => {
+    setResetting(true);
+    try {
+      await onResetAppData();
+      setKeyDraft('');
+      setOpenAiDraft('');
+      Alert.alert('Erased', 'All app data has been deleted. The app is back to a fresh install.');
+    } catch (e: any) {
+      Alert.alert('Reset failed', e?.message ?? String(e));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  // Two separate confirmations, worded so neither can be dismissed on autopilot: the first
+  // spells out exactly what is destroyed, the second requires choosing the destructive verb.
+  // Nothing here is recoverable — there is no export, backup or undo.
+  const confirmReset = () => {
+    Alert.alert(
+      'Erase all app data?',
+      'This permanently deletes:\n\n' +
+        '•  Every context note, including their API operation setups\n' +
+        '•  Everything remembered in Memory\n' +
+        '•  Your Claude and OpenAI API keys\n' +
+        '•  All MCP servers and their sign-ins\n' +
+        '•  Your printer choice and every other setting\n\n' +
+        'There is no backup and no undo. You will have to set the app up again from scratch.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Continue', style: 'destructive', onPress: askAgain },
+      ],
+    );
+  };
+
+  const askAgain = () => {
+    Alert.alert(
+      'Last chance',
+      'Everything above will be erased the moment you tap Erase everything. This cannot be reversed.',
+      [
+        { text: 'Keep my data', style: 'cancel' },
+        { text: 'Erase everything', style: 'destructive', onPress: () => void runReset() },
+      ],
+    );
   };
 
   const updateServer = (id: string, patch: Partial<McpServerConfig>) => {
@@ -295,6 +344,21 @@ export default function SettingsScreen({
         ))}
         <TouchableOpacity style={[styles.secondaryButton, { marginTop: 8 }]} onPress={addServer}>
           <Text style={styles.secondaryButtonText}>+ Add MCP server</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View>
+        <Text style={[styles.sectionTitle, { color: colors.danger }]}>Danger zone</Text>
+        <Text style={styles.helpText}>
+          Erases every context note, everything in Memory, both API keys, all MCP servers and
+          their sign-ins, and all settings. There is no backup and no undo.
+        </Text>
+        <TouchableOpacity style={styles.dangerButton} onPress={confirmReset} disabled={resetting}>
+          {resetting ? (
+            <ActivityIndicator color={colors.danger} />
+          ) : (
+            <Text style={styles.dangerButtonText}>Reset app data…</Text>
+          )}
         </TouchableOpacity>
       </View>
     </ScrollView>
@@ -537,6 +601,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   secondaryButtonText: { color: colors.text },
+  dangerButton: {
+    backgroundColor: colors.surface,
+    borderColor: colors.danger,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  dangerButtonText: { color: colors.danger, fontWeight: '600' },
   chip: {
     backgroundColor: colors.surface,
     borderColor: colors.border,

@@ -200,6 +200,11 @@ npx tsc --noEmit
   Display → Verbose logging**, which defaults on in dev builds and off in a production
   build. Those lines include request bodies and remembered values, so leave it off for
   general use; errors are logged either way.
+- **Settings → Danger zone → Reset app data** erases everything the app has stored —
+  contexts and Memory, both API keys, MCP servers and their sign-ins, and all settings —
+  behind two confirmations. There is no backup or undo; it is the only bulk clear, since
+  the per-item ones (Clear memory, Disconnect, Remove server, blanking a key) each cover
+  only their own data.
 - Expo Go scopes stored data by the project `slug` in `app.json`; changing it resets
   the app to a fresh-install state (contexts, settings, API key, printer all cleared).
 - The direct API path sends requests under real credentials with no model in the loop.
