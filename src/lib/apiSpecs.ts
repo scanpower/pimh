@@ -1,4 +1,22 @@
 import scanpowerSpec from '../apiSpecs/scanpower.json';
+import { debugLog } from './debugLog';
+
+/**
+ * A header parameter that another operation in the same spec produces, rather than the user
+ * supplying it. ScanPower's Amazon (SP-API) operations declare a required `x-access-token`
+ * header, minted by `getAccessToken` — so the app can fetch it on demand instead of making
+ * every such context carry a token by hand.
+ */
+export interface HeaderTokenSource {
+  /** Header parameter this fills, named exactly as the spec names it. */
+  header: string;
+  /** Operation that mints the token. */
+  operationId: string;
+  /** Field of that operation's JSON response holding the token. */
+  tokenField: string;
+  /** Optional field holding the token's lifetime in seconds. */
+  expiresInField?: string;
+}
 
 interface SpecRegistration {
   id: string;
@@ -10,6 +28,8 @@ interface SpecRegistration {
    * ScanPower's getApiToken). Omit for specs with no such exchange step.
    */
   authOperationId?: string;
+  /** Header parameters supplied by another operation — see HeaderTokenSource. */
+  headerTokens?: HeaderTokenSource[];
 }
 
 /**
@@ -18,7 +38,15 @@ interface SpecRegistration {
  * is derived automatically at import time.
  */
 const REGISTRY: SpecRegistration[] = [
-  { id: 'scanpower', label: 'ScanPower', spec: scanpowerSpec, authOperationId: 'getApiToken' },
+  {
+    id: 'scanpower',
+    label: 'ScanPower',
+    spec: scanpowerSpec,
+    authOperationId: 'getApiToken',
+    headerTokens: [
+      { header: 'x-access-token', operationId: 'getAccessToken', tokenField: 'access_token', expiresInField: 'expires_in' },
+    ],
+  },
 ];
 
 export type ApiSecurity = 'basic' | 'bearer' | 'none';
@@ -48,6 +76,18 @@ export interface ApiOperation {
 
 const HTTP_METHODS = ['get', 'post', 'put', 'patch', 'delete'] as const;
 
+/** Follow a local JSON pointer ("#/components/parameters/x-access-token") within a spec. */
+function resolveRef(spec: any, ref: string): any {
+  if (!ref.startsWith('#/')) return undefined;
+  let node = spec;
+  for (const raw of ref.slice(2).split('/')) {
+    const key = raw.replace(/~1/g, '/').replace(/~0/g, '~');
+    if (!node || typeof node !== 'object' || !(key in node)) return undefined;
+    node = node[key];
+  }
+  return node;
+}
+
 function securityOf(op: any): ApiSecurity {
   const sec = op.security as Array<Record<string, unknown>> | undefined;
   if (!sec || sec.length === 0) return 'none';
@@ -76,13 +116,19 @@ function buildCatalog(id: string, label: string, spec: any): ApiOperation[] {
         summary: op.summary,
         tags: op.tags ?? [],
         security: securityOf(op),
-        parameters: (op.parameters ?? []).map((p: any) => ({
-          name: p.name,
-          in: p.in,
-          required: !!p.required,
-          schema: p.schema,
-          description: p.description,
-        })),
+        // Parameters are commonly shared via $ref (x-access-token, paging params...). Resolve
+        // them here — read raw, a $ref entry has no name/in/required at all, so the parameter
+        // would silently ingest as nameless and be unusable downstream.
+        parameters: (op.parameters ?? [])
+          .map((p: any) => (p?.$ref ? resolveRef(spec, p.$ref) : p))
+          .filter((p: any) => p && p.name)
+          .map((p: any) => ({
+            name: p.name,
+            in: p.in,
+            required: !!p.required,
+            schema: p.schema,
+            description: p.description,
+          })),
         requestBodySchema: op.requestBody?.content?.['application/json']?.schema,
         servers,
       });
@@ -96,18 +142,20 @@ interface LoadedApiSpec {
   label: string;
   spec: any;
   authOperationId?: string;
+  headerTokens: HeaderTokenSource[];
   operations: ApiOperation[];
 }
 
-const LOADED: LoadedApiSpec[] = REGISTRY.map(({ id, label, spec, authOperationId }) => ({
+const LOADED: LoadedApiSpec[] = REGISTRY.map(({ id, label, spec, authOperationId, headerTokens }) => ({
   id,
   label,
   spec,
   authOperationId,
+  headerTokens: headerTokens ?? [],
   operations: buildCatalog(id, label, spec),
 }));
 
-console.log(
+debugLog(
   `[apiSpecs] ingested ${LOADED.length} spec(s): ` +
     LOADED.map((s) => `${s.id} (${s.operations.length} operations)`).join(', '),
 );
@@ -136,4 +184,22 @@ export function getAuthOperation(specId: string): ApiOperation | undefined {
 /** Spec label, used to match a spec to the MCP server configured for it (see directApi.ts). */
 export function getSpecLabel(specId: string): string | undefined {
   return LOADED.find((s) => s.id === specId)?.label;
+}
+
+/** Where a spec-declared header token comes from, if this header has a registered source. */
+export function headerTokenSource(specId: string, header: string): HeaderTokenSource | undefined {
+  return LOADED.find((s) => s.id === specId)?.headerTokens.find((h) => h.header === header);
+}
+
+/**
+ * Header parameters of this operation that the app fills in itself from another operation
+ * (e.g. `x-access-token` via getAccessToken). Driven entirely by what the spec declares on the
+ * operation, so it stays correct for operations outside the /api/az/ prefix — CreateBatchItems
+ * requires the same token despite living under /graphql.
+ */
+export function autoFilledHeaders(op: ApiOperation): string[] {
+  const sources = LOADED.find((s) => s.id === op.specId)?.headerTokens ?? [];
+  return op.parameters
+    .filter((p) => p.in === 'header' && sources.some((h) => h.header === p.name))
+    .map((p) => p.name);
 }

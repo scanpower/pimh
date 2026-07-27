@@ -64,8 +64,11 @@ reshape the request. Where the operation's schema declares a number or boolean, 
 value that is exactly one token is coerced to that type — so `"copies": "{{quantity}}"`
 sends a number, while a barcode with a leading zero stays a string.
 
-> Note: an unmatched token is currently sent through **literally** rather than raising
-> an error. See [SECURITY-AUDIT.md](SECURITY-AUDIT.md) (C1).
+Name matching ignores case and separators, so a Memory fact called `shipment_id` fills a
+parameter the spec spells `shipmentId`. A **required** parameter with no template of its own
+is filled from a same-named value automatically; optional ones are left alone, so a
+remembered value can't silently narrow a query. Anything still unresolved fails before the
+request with a message naming what's missing, rather than sending the literal token.
 
 ## Direct API calls
 
@@ -108,7 +111,8 @@ src/
     claude.ts               Anthropic Messages API via fetch (MCP connector, adaptive thinking)
     openai.ts               OpenAI Responses API via fetch (MCP tools, no approval round-trip)
     models.ts               Model catalog: id, display label, provider
-    templating.ts           {{scan}}/{{fieldId}}/memory-fact substitution
+    templating.ts           {{scan}}/{{fieldId}}/memory-fact substitution and name matching
+    debugLog.ts             Gate for verbose tracing (Settings → Verbose logging)
     apiSpecs.ts             Ingests src/apiSpecs/*.json into an operation catalog
     directApi.ts            Executes an operation: templating, auth, session token, logging
     apiDefaults.ts          Generates starter parameter/body templates from a schema
@@ -182,6 +186,10 @@ npx tsc --noEmit
 - Printing uses `expo-print` (the system print dialog / AirPrint), so it works inside
   Expo Go with no custom native build required — this supports WiFi/AirPrint printers,
   not raw Bluetooth thermal printers.
+- Verbose `[directApi]`/`[claude]`/`[openai]`/`[print]` tracing is gated by **Settings →
+  Display → Verbose logging**, which defaults on in dev builds and off in a production
+  build. Those lines include request bodies and remembered values, so leave it off for
+  general use; errors are logged either way.
 - Expo Go scopes stored data by the project `slug` in `app.json`; changing it resets
   the app to a fresh-install state (contexts, settings, API key, printer all cleared).
 - The direct API path sends requests under real credentials with no model in the loop.

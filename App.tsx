@@ -17,6 +17,7 @@ import {
 } from './src/lib/storage';
 import { AppSettings, ContextNote } from './src/types';
 import { shortLabelFor } from './src/lib/models';
+import { setDebugLogging } from './src/lib/debugLog';
 import { colors } from './src/ui/theme';
 
 type Tab = 'scan' | 'contexts' | 'settings';
@@ -92,6 +93,11 @@ export default function App() {
       setLoaded(true);
     })();
   }, []);
+
+  // Keep the module-level logging gate in step with the persisted setting.
+  useEffect(() => {
+    setDebugLogging(settings.debugLogging);
+  }, [settings.debugLogging]);
 
   const handleContextsChange = useCallback((next: ContextNote[]) => {
     setContexts(next);

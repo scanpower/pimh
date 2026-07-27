@@ -4869,6 +4869,1259 @@
           "Walmart"
         ]
       }
+    },
+    "/api/v2/prep-matrix/product": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get all Prep Matrix Product mappings",
+        "description": "Retrieve a list of prep_matrix_products with optional filters",
+        "operationId": "selectPrepMatrixProducts",
+        "parameters": [
+          {
+            "name": "prep_matrix_id",
+            "in": "query",
+            "description": "Filter by prep_matrix_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prep_matrix_name",
+            "in": "query",
+            "description": "Filter by prep_matrix name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "external_id",
+            "in": "query",
+            "description": "Filter by external ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "description": "Filter by client ID",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_matrix_products": {
+                      "type": "array",
+                      "items": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/PrepMatrixProduct"
+                          },
+                          {
+                            "$ref": "#/components/schemas/PrepMatrix"
+                          }
+                        ]
+                      }
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/product/{external_id}": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get a specific Prep Matrix Product mapping by external_id",
+        "description": "Retrieve a prep_matrix_product by its external_id",
+        "operationId": "selectPrepMatrixProduct",
+        "parameters": [
+          {
+            "name": "external_id",
+            "in": "path",
+            "description": "External ID of the prep_matrix_product",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_matrix_product": {
+                      "$ref": "#/components/schemas/PrepMatrixProduct"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get all Prep Matrices",
+        "description": "Retrieve a list of prep_matrices with optional filters",
+        "operationId": "selectPrepMatrices",
+        "parameters": [
+          {
+            "name": "prep_matrix_id",
+            "in": "query",
+            "description": "Filter by prep_matrix_id",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prep_matrix_name",
+            "in": "query",
+            "description": "Filter by prep_matrix name",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ad_hoc",
+            "in": "query",
+            "description": "Filter by ad_hoc",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "prep_matrix_category_ids",
+            "in": "query",
+            "description": "Comma separated list of category ids to filter by",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prep_matrix_category_names",
+            "in": "query",
+            "description": "Comma separated list of category names to filter by. If a name has a comma in it, wrap it with quotes",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "client_ids",
+            "in": "query",
+            "description": "A comma separated list of client user ids (UUID). Can also pass `null` as one of the values to return records with a null client_id.",
+            "required": false,
+            "example": "2f16c5b2-97d3-4238-8b89-22851363bf27,null",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_matrices": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PrepMatrix"
+                      }
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/prep-tier": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get all Prep Tiers",
+        "description": "Retrieve a list of prep tiers",
+        "operationId": "selectPrepTiers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_tiers": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PrepTier"
+                      }
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/category": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get all prep matrix categories",
+        "description": "Retrieve a list of prep_matrix_categories with optional filters",
+        "operationId": "selectPrepMatrixCategories",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_matrix_categories": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PrepMatrixCategory"
+                      }
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/ad_hoc": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get ad hoc charges",
+        "description": "Get ad hoc charges",
+        "operationId": "selectAdHocPrepMatrices",
+        "parameters": [
+          {
+            "name": "client_ids",
+            "in": "query",
+            "description": "A comma separated list of client user ids.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "batch_id",
+            "in": "query",
+            "description": "A single Amazon batch id.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "shipment_ids",
+            "in": "query",
+            "description": "A comma separated list of Amazon shipment confirmation ids.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "wm_shipment_ids",
+            "in": "query",
+            "description": "A comma separated list of Walmart shipment ids.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_ids",
+            "in": "query",
+            "description": "A comma separated list of Amazon batch ids.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "v2_batch_ids",
+            "in": "query",
+            "description": "A comma separated list of Walmart batch ids.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "purchase_order_ids",
+            "in": "query",
+            "description": "A comma separated list of purchase order ids.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "prep_matrix_ids",
+            "in": "query",
+            "description": "A comma separated list of prep matrix ids.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "prep_matrix_categories",
+            "in": "query",
+            "description": "A comma separated list of prep matrix categories.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdHocPrepMatrixResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get ad hoc charges",
+        "description": "Get ad hoc charges",
+        "operationId": "selectAdHocPrepMatricesPost",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "client_ids": {
+                    "description": "A list of client user ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "uuid"
+                    }
+                  },
+                  "batch_id": {
+                    "description": "A single Amazon batch id",
+                    "type": "string"
+                  },
+                  "shipment_ids": {
+                    "description": "A list of Amazon shipment confirmation ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "wm_shipment_ids": {
+                    "description": "A list of Walmart shipment ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "batch_ids": {
+                    "description": "A list of Amazon batch ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "v2_batch_ids": {
+                    "description": "A list of Walmart batch ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "purchase_order_ids": {
+                    "description": "A list of purchase order ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "prep_matrix_ids": {
+                    "description": "A list of prep matrix ids.",
+                    "type": "array",
+                    "items": {
+                      "type": "integer",
+                      "format": "int64"
+                    }
+                  },
+                  "prep_matrix_names": {
+                    "description": "A list of prep matrix names.",
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdHocPrepMatrixResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/tier": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get all Prep Matrix Tiers",
+        "description": "Prep matrix tiers are mapping of prep types to tiers along with the price and currency code",
+        "operationId": "selectPrepMatrixTiers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_matrix_tiers": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/PrepMatrixTier"
+                      }
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/client-tier": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get all Prep Client Tiers",
+        "description": "Retrieve a list of prep client tiers with optional filters",
+        "operationId": "selectPrepClientTiers",
+        "parameters": [
+          {
+            "name": "client_ids",
+            "in": "query",
+            "description": "A comma separated list of client user ids.",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "prep_tier_ids",
+            "in": "query",
+            "description": "A comma separated list of prep tier ids.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_client_tiers": {
+                      "type": "array",
+                      "items": {
+                        "allOf": [
+                          {
+                            "$ref": "#/components/schemas/PrepClientTier"
+                          },
+                          {
+                            "type": "object",
+                            "properties": {
+                              "prep_tier_name": {
+                                "type": "string"
+                              },
+                              "minimum": {
+                                "type": "integer"
+                              },
+                              "maximum": {
+                                "type": "integer"
+                              },
+                              "prep_tier_type": {
+                                "type": "string",
+                                "enum": [
+                                  "unit",
+                                  "weight"
+                                ]
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "The client name"
+                              },
+                              "business": {
+                                "type": "string",
+                                "description": "The client business name"
+                              }
+                            }
+                          }
+                        ]
+                      }
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/prep-matrix/{prep_matrix_id}": {
+      "get": {
+        "tags": [
+          "Prep Billing"
+        ],
+        "summary": "Get a specific Prep Type Matrix by ID",
+        "description": "Retrieve a prep_matrix by its ID",
+        "operationId": "selectPrepMatrix",
+        "parameters": [
+          {
+            "name": "prep_matrix_id",
+            "in": "path",
+            "description": "ID of the prep_matrix",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "prep_matrix": {
+                      "$ref": "#/components/schemas/PrepMatrix"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ]
+      }
+    },
+    "/api/v2/inbound-plan/{inbound_plan_id}/packing-options": {
+      "get": {
+        "description": "Load the packing options for a given inbound plan",
+        "operationId": "selectPackingOptions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inbound_plan_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "packing_options": {
+                      "items": {
+                        "$ref": "#/components/schemas/packing_option"
+                      },
+                      "type": "array"
+                    },
+                    "total_rows": {
+                      "description": "The total number of packing options that could be returned",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "FBA Inbound Shipment",
+          "Amazon"
+        ],
+        "summary": "Load the packing options for a given Inbound Plan"
+      }
+    },
+    "/api/v2/inbound-plan/{inbound_plan_id}/placement-options": {
+      "get": {
+        "description": "Load the placement options for a given inbound plan",
+        "operationId": "selectPlacementOptions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inbound_plan_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "placement_options": {
+                      "items": {
+                        "$ref": "#/components/schemas/placement_option"
+                      },
+                      "type": "array"
+                    },
+                    "total_rows": {
+                      "description": "The total number of placement options that could be returned",
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "FBA Inbound Shipment",
+          "Amazon"
+        ],
+        "summary": "Load Placement Options for a given Inbound Plan"
+      }
+    },
+    "/api/v2/inbound-plan/{inbound_plan_id}/placement-options/{placement_option_id}/transportation-options": {
+      "get": {
+        "summary": "Load the Transportation Options for a given Inbound Plan and Placement Option",
+        "description": "Load the transportation options for a given inbound plan and placement option",
+        "operationId": "selectTransportationOptions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inbound_plan_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "placement_option_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "shipment_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "total_rows": {
+                      "description": "The total number of transportation options that could be returned",
+                      "type": "integer"
+                    },
+                    "transportation_options": {
+                      "items": {
+                        "$ref": "#/components/schemas/transportation_option"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "FBA Inbound Shipment",
+          "Amazon"
+        ]
+      }
+    },
+    "/api/v2/inbound-plan/{inbound_plan_id}/placement-options/{placement_option_id}/transportation-options/{transportation_option_id}": {
+      "get": {
+        "summary": "Select Transportation Option by Id",
+        "description": "Load the given transportation option by id",
+        "operationId": "selectTransportationOption",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inbound_plan_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "placement_option_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "transportation_option_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "transportation_option": {
+                      "$ref": "#/components/schemas/transportation_option"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "FBA Inbound Shipment",
+          "Amazon"
+        ]
+      }
+    },
+    "/api/v2/inbound-plan/{inbound_plan_id}/shipments/{shipment_id}/delivery-window-options": {
+      "get": {
+        "description": "Get AZ delivery window options from the database",
+        "operationId": "selectDeliveryWindowOptions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inbound_plan_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "shipment_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "delivery_window_options": {
+                      "items": {
+                        "$ref": "#/components/schemas/v2.delivery_window_option"
+                      },
+                      "type": "array"
+                    },
+                    "total_rows": {
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "FBA Inbound Shipment",
+          "Amazon"
+        ],
+        "summary": "Get AZ delivery window options from the database"
+      }
+    },
+    "/api/v2/inbound-plan/{inbound_plan_id}/shipments/{shipment_id}/delivery-window-options/{delivery_window_option_id}": {
+      "get": {
+        "description": "Get an AZ delivery window option from the database",
+        "operationId": "selectDeliveryWindowOption",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "inbound_plan_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "shipment_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery_window_option_id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "delivery_window_option": {
+                      "$ref": "#/components/schemas/v2.delivery_window_option"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "FBA Inbound Shipment",
+          "Amazon"
+        ],
+        "summary": "Get an AZ delivery window option from the database"
+      }
     }
   },
   "components": {

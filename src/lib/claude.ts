@@ -7,6 +7,7 @@ import {
   RunCallbacks,
   RunResult,
 } from './agentCommon';
+import { debugLog } from './debugLog';
 
 const MAX_CONTINUATIONS = 5;
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -113,7 +114,7 @@ export async function runAnthropicConversation(
   let response: any;
   let continuations = 0;
   const runStart = Date.now();
-  console.log(
+  debugLog(
     `[claude] starting request — model=${settings.model}, mcp servers=${mcpServers.length}, ` +
       `messages=${messages.length}`,
   );
@@ -139,7 +140,7 @@ export async function runAnthropicConversation(
       console.error(`[claude] request ${requestNumber} failed after ${reqElapsed}ms: HTTP ${res.status} — ${message}`);
       throw new Error(message);
     }
-    console.log(
+    debugLog(
       `[claude] request ${requestNumber} resolved in ${reqElapsed}ms — stop_reason=${response.stop_reason}, ` +
         `usage=${JSON.stringify(response.usage ?? {})}`,
     );
@@ -164,7 +165,7 @@ export async function runAnthropicConversation(
     break;
   }
 
-  console.log(
+  debugLog(
     `[claude] conversation turn finished in ${Date.now() - runStart}ms across ${continuations + 1} request(s)`,
   );
 

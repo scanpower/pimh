@@ -17,7 +17,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { ContextNote, ContextPromptField } from '../types';
 import { parseImportedContexts } from '../lib/storage';
-import { listAllOperations } from '../lib/apiSpecs';
+import { autoFilledHeaders, listAllOperations } from '../lib/apiSpecs';
 import { buildDefaultBodyTemplate, buildDefaultParamValues } from '../lib/apiDefaults';
 import { colors } from '../ui/theme';
 
@@ -248,13 +248,13 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
         contentContainerStyle={{ padding: 12, gap: 10 }}
         ListEmptyComponent={
           <Text style={[styles.dimText, { textAlign: 'center', marginTop: 32 }]}>
-            No context notes yet. Create one — it drives what Claude does when you scan.
+            No context notes yet. Create one — it drives what happens when you scan.
           </Text>
         }
         ListFooterComponent={
           sortedContexts.length > 0 ? (
             <Text style={[styles.dimText, styles.hint]}>
-              Tap a note to make it active. The active note is sent to Claude as instructions with every scan.
+              Tap a note to make it active. The active note is sent to the model as instructions with every scan.
               {'\n'}Memory is included automatically and updates itself from tool call results — tap it to expand
               and see what's remembered.
             </Text>
@@ -317,7 +317,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
             />
             <TextInput
               style={[styles.input, styles.multiline, { marginTop: 12 }]}
-              placeholder="Instructions for Claude — what should happen when a barcode is scanned?"
+              placeholder="Instructions for the model — what should happen when a barcode is scanned?"
               placeholderTextColor={colors.textDim}
               value={draft?.instructions ?? ''}
               onChangeText={(instructions) => setDraft((d) => (d ? { ...d, instructions } : d))}
@@ -382,7 +382,7 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
               <View style={{ marginTop: 16 }}>
                 <Text style={styles.sectionLabel}>Direct API call (optional)</Text>
                 <Text style={[styles.dimText, styles.sectionHelp]}>
-                  Skip Claude entirely and call this operation straight from the scan — for lookups/actions
+                  Skip the model entirely and call this operation straight from the scan — for lookups/actions
                   that don't need model judgment.
                 </Text>
                 {draft.apiOperation ? (
@@ -420,15 +420,18 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                           Parameters — use {'{{'}scan{'}}'} for the barcode, {'{{'}fieldId{'}}'} for a prompt field, or a
                           remembered fact's name (e.g. {'{{'}asin{'}}'}) from Memory:
                         </Text>
-                        {selectedOp.parameters.map((param) => (
+                        {selectedOp.parameters.map((param) => {
+                          const auto = autoFilledHeaders(selectedOp).includes(param.name);
+                          return (
                           <View key={param.name} style={{ marginBottom: 8 }}>
                             <Text style={{ color: colors.textDim, fontSize: 11, marginBottom: 3 }}>
                               {param.name} ({param.in}
-                              {param.required ? ', required' : ''})
+                              {param.required ? ', required' : ''}
+                              {auto ? ' — filled automatically' : ''})
                             </Text>
                             <TextInput
                               style={styles.input}
-                              placeholder="{{scan}}"
+                              placeholder={auto ? 'fetched for each scan — leave blank' : '{{scan}}'}
                               placeholderTextColor={colors.textDim}
                               value={draft.apiOperation?.paramValues?.[param.name] ?? ''}
                               onChangeText={(v) =>
@@ -440,7 +443,8 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                               autoCorrect={false}
                             />
                           </View>
-                        ))}
+                          );
+                        })}
                       </View>
                     )}
 

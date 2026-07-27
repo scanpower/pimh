@@ -216,6 +216,21 @@ export default function SettingsScreen({
             trackColor={{ true: colors.accent }}
           />
         </View>
+        <View style={[styles.toggleRow, { marginTop: 14 }]}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.toggleLabel}>Verbose logging</Text>
+            <Text style={styles.helpText}>
+              Writes request bodies, resolved parameters and printer details to the developer
+              console. Useful when diagnosing a scan; leave off when the app is in general use,
+              since those lines include customer and inventory data. Errors are logged either way.
+            </Text>
+          </View>
+          <Switch
+            value={settings.debugLogging}
+            onValueChange={(debugLogging) => onSettingsChange({ ...settings, debugLogging })}
+            trackColor={{ true: colors.accent }}
+          />
+        </View>
       </View>
 
       <View>
@@ -266,7 +281,7 @@ export default function SettingsScreen({
       <View>
         <Text style={styles.sectionTitle}>MCP tool connections</Text>
         <Text style={styles.helpText}>
-          Enabled servers are attached to every scan via the Claude API MCP connector, so Claude can call
+          Enabled servers are attached to every scan so the selected model can call
           their tools (e.g. ScanPower inventory and listing tools). Most hosted MCP servers require OAuth
           — tap Connect to sign in; the token is refreshed automatically and stored in the device Keychain.
         </Text>

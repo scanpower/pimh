@@ -30,6 +30,7 @@ Prompt-field values are user-typed and lower risk, but flow through identically.
 | F1 | **JSON injection into the request body.** Values were spliced into the body template *as text* before `JSON.parse`, so a value containing `"` could add keys or whole array elements. Verified: a crafted `{{scan}}` injected a second label item that would have printed. | Template is parsed first; `substituteInJson()` substitutes into parsed string leaves, so a value can never introduce JSON structure. Schema walked in parallel to type-coerce whole-token values (a leading-zero barcode stays a string). |
 | F2 | **Ordinary data broke the call.** Any value with `"`, `\`, or a curly quote threw at parse — product titles routinely contain these. `normalizeSmartQuotes` also ran *after* substitution, corrupting typographic quotes inside real data. | Same fix as F1; smart-quote normalization now applies to the template only. |
 | F3 | **Session token never expired.** `base64Decode` stripped base64url `-`/`_` as invalid, so the JWT `exp` claim never parsed, `expiresAt` was always `undefined`, and the token was cached for the whole app session with no refresh and no 401 recovery. | base64url translated before decode; added a 401 invalidate-and-retry-once using `clearSessionToken()`. |
+| F4 | **Unresolved `{{tokens}}` were sent literally.** A template token nothing supplied was passed through as text, so an unfilled path parameter became `/shipments/%7BshipmentId%7D/labels` and the API rejected the encoded placeholder rather than reporting the missing value. Compounding it, token lookup was case-sensitive while Memory facts are stored lower-cased, so `{{shipmentId}}` could never match a remembered `shipmentId`. | Lookup falls back to a case- and separator-insensitive match (`shipmentId` / `shipment_id` / `shipmentid` all resolve). Anything still unresolved — in a parameter, a path placeholder or the body — now fails before the request with a message naming what's missing. |
 
 ## Open — security
 
@@ -61,22 +62,19 @@ gets a label, how many copies, etc. That is inherent to the feature. Mitigations
 worth considering: showing a confirmation for state-changing operations, or
 restricting which `values` keys a template may reference.
 
-### S4. Verbose request logging (Low)
-`[directApi]` logs the fully-resolved request body and parameters. Useful for
-debugging, but that is product/customer data in Metro logs. Consider redacting or
-gating behind a debug flag before any wider distribution.
+### S4. Verbose request logging — FIXED
+`[directApi]`/`[claude]`/`[openai]`/`[print]` logged fully-resolved request bodies,
+parameters and remembered values unconditionally — product and customer data in the
+developer console. All of it now runs through `debugLog()` (`src/lib/debugLog.ts`),
+gated by the `debugLogging` setting: on in dev builds, off in a production build, and
+switchable under Settings → Display → Verbose logging. `console.error`/`console.warn`
+remain ungated, since a failure is worth surfacing either way.
 
 ### S5. API error text surfaced to the UI (Low)
 Failures embed up to 200–300 characters of the raw API response into thrown errors,
 which reach `Alert.alert`. An API error body could contain tokens or PII.
 
 ## Open — correctness / robustness
-
-### C1. Unresolved `{{tokens}}` ship silently (Medium)
-`substituteFields()` leaves an unmatched `{{token}}` as literal text, so a typo'd or
-missing value is sent to the API verbatim — observed in practice with `{{title}}`
-and `{{quantity}}`. There is no post-substitution validation pass. Should warn or
-throw when tokens remain.
 
 ### C2. Region hardcoded (Medium)
 `op.servers[0]` always selects `unity.scanpower.com` (us-east). The spec also lists
@@ -120,6 +118,7 @@ doing control-flow duty, and the tag leaks into UI text. An explicit
 Required numbers default to `0` (e.g. `label_width: 0`) — structurally valid JSON,
 guaranteed to fail server-side, with nothing flagging it to the user.
 
-### D4. Module coupling (Low)
-`directApi.ts` imports `substituteFields` from `claude.ts`, coupling the REST path to
-the LLM module. Templating belongs in its own module.
+### D4. Module coupling — FIXED
+`directApi.ts` imported `substituteFields` from `claude.ts`, coupling the REST path to
+the LLM module. Templating now lives in `src/lib/templating.ts`, which both the REST
+path and the provider paths import.

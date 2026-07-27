@@ -26,6 +26,7 @@ import { summarizeApiResult } from '../lib/apiSummary';
 import { printContent } from '../lib/print';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
+import { debugLog } from '../lib/debugLog';
 
 // A tool result is auto-printed when the tool that produced it has "print" in its name
 // (e.g. print_item_labels) — a substring match, since tool names are snake_case identifiers
@@ -111,7 +112,7 @@ export default function ScanScreen({
         (b) => b.kind === 'tool_result' && !b.isError && b.tool && PRINT_TOOL_RE.test(b.tool),
       ) as Extract<AgentBlock, { kind: 'tool_result' }>[];
       if (results.length === 0) return; // nothing print-related happened this step — stay quiet
-      console.log(
+      debugLog(
         `[print] ${results.length} tool result(s) from a "print"-named tool ` +
           `(printer: ${settings.printer ? settings.printer.name : 'none saved'})`,
       );
@@ -163,7 +164,7 @@ export default function ScanScreen({
 
   // Tapping a value in an API result section offers to copy it or keep it. "Add to Memory"
   // writes "Label: value", the shape parseMemoryFacts() reads back, so a fact captured here
-  // becomes available to later scans as a {{token}} as well as being shown to Claude.
+  // becomes available to later scans as a {{token}} as well as being shown to the model.
   const handleValuePress = useCallback(
     (label: string, value: string) => {
       Alert.alert(label, value, [
@@ -208,7 +209,7 @@ export default function ScanScreen({
       setAnswerText('');
       setTopCollapsed(false); // every scan starts with the camera showing
 
-      // A context wired to a direct API operation bypasses Claude/MCP entirely — it's a
+      // A context wired to a direct API operation bypasses the model and MCP entirely — it's a
       // deterministic REST call, so there's no model judgment to apply.
       if (activeContext?.apiOperation) {
         const { specId, operationId, paramValues, bodyTemplate } = activeContext.apiOperation;
@@ -234,7 +235,7 @@ export default function ScanScreen({
             tool,
           };
           // Pair the raw result with a rendered summary, so a direct API scan reads like a
-          // Claude answer instead of showing nothing until "Show tool calls" is switched on.
+          // model answer instead of showing nothing until "Show tool calls" is switched on.
           const summary = summarizeApiResult(op, result);
           const blocks = [...summary, block];
           // Open the section the summarizer flagged (the first object of the collection) so the

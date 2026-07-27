@@ -95,6 +95,11 @@ export interface AppSettings {
   /** Show tool call/result cards in scan results. Off by default — most users just want the final answer. */
   showToolCalls: boolean;
   /**
+   * Emit the verbose [directApi]/[claude]/[openai]/[print] traces. Those include request
+   * bodies and resolved values, so they default to dev builds only. Errors log regardless.
+   */
+  debugLogging: boolean;
+  /**
    * Default printer for contexts that trigger printing (instructions containing the word
    * "print"). iOS only — null means the system print dialog's printer picker is used instead.
    */

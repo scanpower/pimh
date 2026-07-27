@@ -11,6 +11,9 @@ const OAUTH_KEY_PREFIX = 'midg.mcp_oauth.';
 export const DEFAULT_SETTINGS: AppSettings = {
   model: 'claude-opus-4-8',
   showToolCalls: false,
+  // Matches debugLog.ts's own default, so Expo Go keeps today's output and a production
+  // build starts quiet. The Settings toggle overrides either way.
+  debugLogging: typeof __DEV__ !== 'undefined' ? __DEV__ : false,
   printer: null,
   mcpServers: [
     {

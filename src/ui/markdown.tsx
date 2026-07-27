@@ -8,8 +8,8 @@ import { colors } from './theme';
 // than relying on that default: the bundled linkify-it has an unpatched
 // ReDoS in its autolink scanner (GHSA-v245-v573-v5vm), and this app renders
 // text that ultimately originates from scanned barcode data / MCP tool
-// output, not just Claude's own prose. We don't need bare-URL autolinking —
-// Claude already emits proper [text](url) links — so keep the vulnerable
+// output, not just the model's own prose. We don't need bare-URL autolinking —
+// models already emit proper [text](url) links — so keep the vulnerable
 // code path unreachable rather than just noting the risk.
 export const markdownItInstance = MarkdownIt({ typographer: true, linkify: false });
 

@@ -1,6 +1,7 @@
 import * as Print from 'expo-print';
 import { Platform } from 'react-native';
 import { PrinterConfig } from '../types';
+import { debugLog } from './debugLog';
 
 function escapeHtml(text: string): string {
   return text
@@ -81,7 +82,7 @@ export async function printContent(content: string, printer: PrinterConfig | nul
         detail: `${content.length} chars: ${content.slice(0, 120)}${content.length > 120 ? '…' : ''}`,
       };
 
-  console.log(`[print] ${call.mode} → ${call.target} — ${call.detail}`);
+  debugLog(`[print] ${call.mode} → ${call.target} — ${call.detail}`);
   try {
     if (pdfUri) {
       await Print.printAsync({ uri: pdfUri, printerUrl: printer?.url ?? undefined });
@@ -93,7 +94,7 @@ export async function printContent(content: string, printer: PrinterConfig | nul
         '</pre></body></html>';
       await Print.printAsync({ html, printerUrl: printer?.url ?? undefined });
     }
-    console.log(`[print] Print.printAsync resolved (${call.mode})`);
+    debugLog(`[print] Print.printAsync resolved (${call.mode})`);
     return { call };
   } catch (e: any) {
     console.error(`[print] Print.printAsync rejected (${call.mode}):`, e);
@@ -105,6 +106,6 @@ export async function printContent(content: string, printer: PrinterConfig | nul
 export async function selectPrinter(): Promise<PrinterConfig | null> {
   if (Platform.OS !== 'ios') return null;
   const printer = await Print.selectPrinterAsync();
-  console.log('[print] selectPrinterAsync() resolved:', printer);
+  debugLog('[print] selectPrinterAsync() resolved:', printer);
   return printer;
 }

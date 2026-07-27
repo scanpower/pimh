@@ -7,6 +7,7 @@ import {
   RunCallbacks,
   RunResult,
 } from './agentCommon';
+import { debugLog } from './debugLog';
 
 const API_URL = 'https://api.openai.com/v1/responses';
 
@@ -98,7 +99,7 @@ export async function runOpenAiConversation(
   if (allBlocks.length > 0) callbacks.onBlocks([...allBlocks]);
 
   const started = Date.now();
-  console.log(`[openai] starting request — model=${settings.model}, mcp servers=${tools.length}`);
+  debugLog(`[openai] starting request — model=${settings.model}, mcp servers=${tools.length}`);
 
   let res: Response;
   try {
@@ -121,7 +122,7 @@ export async function runOpenAiConversation(
     console.error(`[openai] request failed after ${Date.now() - started}ms: HTTP ${res.status} — ${message}`);
     throw new Error(message);
   }
-  console.log(
+  debugLog(
     `[openai] resolved in ${Date.now() - started}ms — status=${response.status}, ` +
       `usage=${JSON.stringify(response.usage ?? {})}`,
   );

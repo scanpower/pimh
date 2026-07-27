@@ -1,8 +1,48 @@
-import { ContextPromptField } from '../types';
+import type { ContextPromptField } from '../types';
 
-/** Replace {{fieldId}} occurrences in a context's instructions with collected prompt-field values. */
+/** Any {{token}} left in a string after substitution — nothing supplied a value for it. */
+export const UNRESOLVED_TOKEN_RE = /\{\{\w+\}\}/g;
+
+/** Case- and separator-insensitive form, so shipmentId / shipment_id / shipmentid all match. */
+function normalizeKey(key: string): string {
+  return key.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+/**
+ * Replace {{fieldId}} occurrences with collected values. An exact key wins; failing that the
+ * lookup is retried case- and separator-insensitively, because the spellings legitimately
+ * differ across sources: an API parameter is often camelCase (`shipmentId`) while Memory
+ * facts are stored slugified and lower-cased (`shipmentid`), so a strict match would leave
+ * `{{shipmentId}}` unresolved and send the literal token to the API.
+ */
 export function substituteFields(template: string, values: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, id) => (id in values ? values[id] : match));
+  return template.replace(/\{\{(\w+)\}\}/g, (match, id) => {
+    const hit = lookupValue(id, values);
+    return hit === undefined ? match : hit;
+  });
+}
+
+/**
+ * Find a value by name, exact match first and then ignoring case and separators. Used both for
+ * {{token}} substitution and for filling an API parameter that has no template of its own, so
+ * a Memory fact named `shipment_id` satisfies a parameter the spec calls `shipmentId`.
+ */
+export function lookupValue(name: string, values: Record<string, string>): string | undefined {
+  return lookupEntry(name, values)?.value;
+}
+
+/** As lookupValue, but also reports which key matched — useful for explaining a substitution. */
+export function lookupEntry(
+  name: string,
+  values: Record<string, string>,
+): { key: string; value: string } | undefined {
+  if (name in values) return { key: name, value: values[name] };
+  const target = normalizeKey(name);
+  if (!target) return undefined;
+  for (const [key, value] of Object.entries(values)) {
+    if (normalizeKey(key) === target) return { key, value };
+  }
+  return undefined;
 }
 
 function slugifyLabel(label: string): string {
