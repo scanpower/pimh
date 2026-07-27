@@ -201,6 +201,7 @@ export default function ScanScreen({
       setScanning(false);
       setExpandedTools(new Set());
       setAnswerText('');
+      setTopCollapsed(false); // every scan starts with the camera showing
 
       // A context wired to a direct API operation bypasses Claude/MCP entirely — it's a
       // deterministic REST call, so there's no model judgment to apply.
@@ -389,10 +390,20 @@ export default function ScanScreen({
 
   const handleResultsScroll = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      if (!resultsOverflow) return; // nothing to scroll — leave the header alone
       const y = e.nativeEvent.contentOffset.y;
-      if (y > 24 && !topCollapsed) setTopCollapsed(true);
-      else if (y <= 4 && topCollapsed) setTopCollapsed(false);
+      // Collapse once the user scrolls into the results — but only when there was genuinely
+      // something to scroll, so a bounce on short output doesn't hide the camera for nothing.
+      if (y > 24 && !topCollapsed && resultsOverflow) {
+        setTopCollapsed(true);
+        return;
+      }
+      // Re-expand only on a deliberate pull down past the top. Keying this off "back at the
+      // top" instead loops forever: collapsing frees the ~250px the header occupied, which can
+      // be enough to make the results fit, which snaps the offset back to 0, which re-expands
+      // the header and clips them again — leaving the bottom permanently out of reach. The
+      // overflow guard can't break that cycle because the viewport is still being animated
+      // when the snap-back arrives, so the measurement it reads is a frame behind.
+      if (y < -40 && topCollapsed) setTopCollapsed(false);
     },
     [topCollapsed, resultsOverflow],
   );
