@@ -10,7 +10,7 @@ const OAUTH_KEY_PREFIX = 'pimh.mcp_oauth.';
 
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  model: 'claude-opus-4-8',
+  model: 'claude-opus-5',
   showToolCalls: false,
   // Matches debugLog.ts's own default, so Expo Go keeps today's output and a production
   // build starts quiet. The Settings toggle overrides either way.
@@ -24,8 +24,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
       enabled: false,
       authType: 'oauth',
       oauth: {
-        authorizationEndpoint: 'https://mcp.scanpower.com',
-        tokenEndpoint: 'https://mcp.scanpower.com',
+        authorizationEndpoint: 'https://mcp.scanpower.com/authorize',
+        tokenEndpoint: 'https://mcp.scanpower.com/token',
         clientId: '',
         scopes: [],
       },

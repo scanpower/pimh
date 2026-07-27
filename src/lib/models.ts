@@ -15,7 +15,7 @@ export interface ModelOption {
  * key authenticates it — see agent.ts. Adding a model is just another entry here.
  */
 export const MODELS: ModelOption[] = [
-  { id: 'claude-opus-4-8', label: 'claude-opus-4-8', short: 'Opus 4.8', provider: 'anthropic' },
+  { id: 'claude-opus-5', label: 'claude-opus-5', short: 'Opus 5', provider: 'anthropic' },
   { id: 'claude-sonnet-5', label: 'claude-sonnet-5', short: 'Sonnet 5', provider: 'anthropic' },
   { id: 'claude-haiku-4-5', label: 'claude-haiku-4-5', short: 'Haiku 4.5', provider: 'anthropic' },
   // The GPT-5.6 family is three named tiers, not numbered size variants: Luna is the
