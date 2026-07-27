@@ -25,7 +25,7 @@ A context takes one of two paths:
 3. Then, depending on the context:
    - **Direct API call** — the chosen operation's parameters and JSON body are built
      from templates and sent, and the response is summarized into the same results view
-     a Claude answer renders into. Each object in a returned collection (e.g. each
+     a model's answer renders into. Each object in a returned collection (e.g. each
      inbound plan) gets its own collapsible section — the first opens automatically —
      with fields shown under the API's own attribute names (`v1_batch_id`, not a re-cased
      variant) and null attributes omitted. A PDF is noted by size rather than dumped, and
@@ -33,13 +33,23 @@ A context takes one of two paths:
      **Copy** it or **Add to Memory**, which appends it as a `v1_batch_id: 31822` fact —
      reusable by a later scan as `{{v1_batch_id}}`, the same name the API uses.
      See [Direct API calls](#direct-api-calls) below.
-   - **Claude** — the context's instructions become the system prompt, sent with the
-     scan and any collected fields. Claude may call MCP tools, and its reply is
-     rendered as formatted markdown. It can also end with:
+   - **A model** — the context's instructions become the system prompt, sent with the
+     scan and any collected fields. The model selected in Settings decides where the
+     request goes and which key signs it: a Claude model to the Anthropic Messages API,
+     a GPT model to the OpenAI Responses API. Either way it can call tools on the
+     enabled MCP servers, and its reply is rendered as formatted markdown. It can also
+     end with:
      - `ASK: <question>` or `CHOOSE: <question> | <opt1> | <opt2>` to collect a
        follow-up answer and continue the same conversation, or
      - `MEMORY: <key>: <value>` to append a durable fact to the auto-managed
        **Memory** context, which is included on every future scan.
+
+     The two providers reach MCP differently — Anthropic through its server-side
+     connector, OpenAI through `type: "mcp"` tool entries — but a context behaves the
+     same on both, since the system prompt, signal lines and tool results are shared.
+     A conversation can't be continued across a model switch, though: the transcript is
+     in the provider's own format, so answering an `ASK` means staying on the model
+     that asked.
 4. **Printing** is triggered by the *tool that produced a result*, not by the wording
    of the context: any successful tool result whose tool name contains "print" (e.g.
    ScanPower's `print_item_labels`) is sent to the configured printer. For direct API
