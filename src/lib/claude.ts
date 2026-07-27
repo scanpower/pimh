@@ -1,121 +1,16 @@
-import { AgentBlock, AppSettings, ContextNote, ContextPromptField, McpServerConfig, PendingPrompt, ScanEvent } from '../types';
-import { getValidAccessToken } from './mcpOAuth';
+import { AgentBlock, AppSettings, ContextNote, PendingPrompt } from '../types';
+import {
+  buildSystemPrompt,
+  extractSignals,
+  flagHallucinatedToolCalls,
+  resolveMcpServers,
+  RunCallbacks,
+  RunResult,
+} from './agentCommon';
 
 const MAX_CONTINUATIONS = 5;
 const API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
-
-export interface RunCallbacks {
-  onBlocks: (blocks: AgentBlock[]) => void;
-}
-
-export interface RunResult {
-  blocks: AgentBlock[];
-  stopReason: string;
-  memoryNotes: string[];
-  pendingPrompt?: PendingPrompt;
-  /** Full conversation so far — pass back into continueScan() to answer a pendingPrompt. */
-  messages: any[];
-}
-
-/**
- * Resolve the bearer token to send with an MCP server, per its auth type.
- * OAuth servers return null when not yet connected (or refresh failed) —
- * callers must exclude those from the request rather than sending no token.
- */
-async function resolveServerToken(server: McpServerConfig): Promise<string | null> {
-  switch (server.authType) {
-    case 'oauth':
-      return getValidAccessToken(server);
-    case 'token':
-      return server.authorizationToken || null;
-    default:
-      return null;
-  }
-}
-
-/** Replace {{fieldId}} occurrences in a context's instructions with collected prompt-field values. */
-export function substituteFields(template: string, values: Record<string, string>): string {
-  return template.replace(/\{\{(\w+)\}\}/g, (match, id) => (id in values ? values[id] : match));
-}
-
-function slugifyLabel(label: string): string {
-  return label
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^_+|_+$/g, '');
-}
-
-/**
- * Prompt field values are collected keyed by field id (e.g. "field_1"), but it's natural to
- * reference a field by its label instead when hand-writing a {{...}} template — add a
- * label-slug alias for each field (e.g. "Quantity" -> {{quantity}}) alongside its id, so
- * either works. Label aliases never override an existing id/key with the same name.
- */
-export function expandFieldAliases(
-  promptFields: ContextPromptField[] | undefined,
-  fieldValues: Record<string, string> | undefined,
-): Record<string, string> {
-  const out: Record<string, string> = { ...(fieldValues ?? {}) };
-  for (const field of promptFields ?? []) {
-    const value = fieldValues?.[field.id];
-    if (value === undefined) continue;
-    const slug = slugifyLabel(field.label);
-    if (slug && !(slug in out)) out[slug] = value;
-  }
-  return out;
-}
-
-const MEMORY_FACT_RE = /^\s*([A-Za-z][A-Za-z0-9 _-]{0,39}?)\s*:\s*(.+?)\s*$/;
-
-/**
- * Parse "Key: value" style lines out of the Memory context's free-text notes (the format
- * Claude's own MEMORY: signal lines tend to use, e.g. "ASIN: B08XYZ123") into a lookup keyed
- * the same way prompt-field labels are — so a {{fieldId}}-style template can also pull in a
- * remembered fact by name (e.g. {{asin}}) when nothing else supplies it. Lines that don't look
- * like "key: value" are skipped; later lines win on a repeated key, matching how Memory keeps
- * its most recent facts toward the end.
- */
-export function parseMemoryFacts(memoryText: string | undefined): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const line of (memoryText ?? '').split('\n')) {
-    const match = line.match(MEMORY_FACT_RE);
-    if (!match) continue;
-    const slug = slugifyLabel(match[1]);
-    if (slug) out[slug] = match[2].trim();
-  }
-  return out;
-}
-
-const MEMORY_LINE_RE = /^memory:\s*(.+)$/i;
-const ASK_LINE_RE = /^ask:\s*(.+)$/i;
-const CHOOSE_LINE_RE = /^choose:\s*(.+)$/i;
-
-/**
- * Tells Claude about the signal lines it can end a reply with:
- *  - MEMORY: <fact> — a concise, durable fact worth remembering across scans.
- *  - ASK: <question> — Claude needs a short free-text answer before it can finish.
- *  - CHOOSE: <question> | <opt1> | <opt2> | ... — Claude needs the user to pick one of a few options.
- * All are stripped from the displayed text and rendered by the app instead
- * (ASK/CHOOSE as an interactive prompt; MEMORY merged into the Memory context).
- */
-const SIGNAL_INSTRUCTION =
-  '\n\nYou may end your reply with special signal lines (each alone on its own line, at the very end):\n' +
-  '- "MEMORY: <key>: <value>" — a concise, durable fact worth remembering for future scans, phrased as a ' +
-  'short lowercase key, a colon, then the value (e.g. "MEMORY: asin: B08XYZ123", "MEMORY: condition: New") ' +
-  '— one fact per line, one key per line. Prefer short conventional keys (asin, sku, upc, title, condition, ' +
-  'quantity, price, location) over restating them in a sentence, since these get parsed back out by key ' +
-  'for reuse elsewhere in the app. Whenever a tool call returns identifying details about the scanned item ' +
-  '— SKU, ASIN, UPC, product name, quantity, location/bin, price, condition, or similar — you MUST include ' +
-  'one MEMORY line per distinct fact worth keeping, even if the answer already states it in prose. Skip a ' +
-  'fact only if it is already listed verbatim in "Known context from previous scans" below, or if this scan ' +
-  'used no tools and produced nothing new and reusable.\n' +
-  '- "ASK: <question>" — if you need the user to type a short answer before you can finish (e.g. a ' +
-  'quantity or a clarification), ask exactly one question this way instead of guessing.\n' +
-  '- "CHOOSE: <question> | <option 1> | <option 2> | ..." — if the user needs to pick from a small set ' +
-  'of options, ask this way instead of listing them in prose.\n' +
-  'Use at most one of ASK or CHOOSE per reply, only when truly needed to proceed — otherwise just answer normally.';
 
 function contentToBlocks(content: any[]): AgentBlock[] {
   const blocks: AgentBlock[] = [];
@@ -152,77 +47,6 @@ function contentToBlocks(content: any[]): AgentBlock[] {
 }
 
 /**
- * Pull MEMORY/ASK/CHOOSE signal lines out of text blocks, returning the
- * cleaned blocks (never shown to the user) plus the extracted facts and any
- * pending prompt (last one wins if more than one appeared).
- */
-function extractSignals(blocks: AgentBlock[]): {
-  blocks: AgentBlock[];
-  memoryNotes: string[];
-  pendingPrompt?: PendingPrompt;
-} {
-  const memoryNotes: string[] = [];
-  let pendingPrompt: PendingPrompt | undefined;
-  const cleaned: AgentBlock[] = [];
-
-  for (const block of blocks) {
-    if (block.kind !== 'text') {
-      cleaned.push(block);
-      continue;
-    }
-    const kept: string[] = [];
-    for (const line of block.text.split('\n')) {
-      const memoryMatch = line.match(MEMORY_LINE_RE);
-      const askMatch = line.match(ASK_LINE_RE);
-      const chooseMatch = line.match(CHOOSE_LINE_RE);
-      if (memoryMatch) {
-        memoryNotes.push(memoryMatch[1].trim());
-      } else if (askMatch) {
-        pendingPrompt = { kind: 'ask', question: askMatch[1].trim() };
-      } else if (chooseMatch) {
-        const parts = chooseMatch[1]
-          .split('|')
-          .map((p) => p.trim())
-          .filter(Boolean);
-        const [question, ...options] = parts;
-        if (question && options.length > 0) {
-          pendingPrompt = { kind: 'choose', question, options };
-        }
-      } else {
-        kept.push(line);
-      }
-    }
-    const text = kept.join('\n').trim();
-    if (text) cleaned.push({ kind: 'text', text });
-  }
-
-  return { blocks: cleaned, memoryNotes, pendingPrompt };
-}
-
-// Some models occasionally fall back to writing out a fake tool call and a fake result as
-// literal text — most commonly when the system prompt tells Claude to use a tool (e.g. "use
-// ScanPower to print...") but no matching MCP server was actually attached to this request, so
-// there's no real tool for it to call. Flag it clearly rather than letting a fabricated "success"
-// message go unnoticed — no tool_use block means nothing actually happened server-side.
-const HALLUCINATED_TOOL_CALL_RE = /<function_calls>|<invoke\b|<function_results>/i;
-
-function flagHallucinatedToolCalls(blocks: AgentBlock[]): AgentBlock[] {
-  const hasRealToolUse = blocks.some((b) => b.kind === 'tool_use');
-  const hasFakeCallText = blocks.some((b) => b.kind === 'text' && HALLUCINATED_TOOL_CALL_RE.test(b.text));
-  if (hasRealToolUse || !hasFakeCallText) return blocks;
-  return [
-    {
-      kind: 'warning',
-      text:
-        "Claude's reply looks like it wrote out a fake tool call instead of actually calling one — no tool " +
-        "was really invoked, so nothing happened (e.g. nothing was printed). This usually means the MCP " +
-        "server this context expects isn't enabled and connected — check Settings.",
-    },
-    ...blocks,
-  ];
-}
-
-/**
  * Drive one full conversation turn-loop against the Messages API, starting
  * from `initialMessages`. Shared by runScan() (a fresh scan) and
  * continueScan() (answering a pendingPrompt) so both go through identical
@@ -236,7 +60,7 @@ function flagHallucinatedToolCalls(blocks: AgentBlock[]): AgentBlock[] {
  * streams, so we use a plain POST and surface interim state via pause_turn
  * continuations instead of token-level streaming.
  */
-async function runConversation(
+export async function runAnthropicConversation(
   apiKey: string,
   settings: AppSettings,
   context: ContextNote | undefined,
@@ -244,13 +68,7 @@ async function runConversation(
   initialMessages: any[],
   callbacks: RunCallbacks,
 ): Promise<RunResult> {
-  const candidates = settings.mcpServers.filter((s) => s.enabled && s.url);
-  const resolved = await Promise.all(
-    candidates.map(async (s) => ({ server: s, token: await resolveServerToken(s) })),
-  );
-
-  const notConnected = resolved.filter((r) => r.server.authType === 'oauth' && r.token === null);
-  const usable = resolved.filter((r) => !(r.server.authType === 'oauth' && r.token === null));
+  const { usable, warnings: preflightWarnings } = await resolveMcpServers(settings);
 
   const mcpServers = usable.map(({ server: s, token }) => ({
     type: 'url' as const,
@@ -263,17 +81,7 @@ async function runConversation(
     mcp_server_name: s.name,
   }));
 
-  const preflightWarnings: AgentBlock[] = notConnected.map(({ server: s }) => ({
-    kind: 'warning',
-    text: `${s.name} is enabled but not connected — go to Settings and tap Connect.`,
-  }));
-
-  const memoryText = memory?.instructions?.trim();
-  const system =
-    (context?.instructions ??
-      'The user scanned a barcode. Identify the product or content and summarize it concisely.') +
-    SIGNAL_INSTRUCTION +
-    (memoryText ? `\n\nKnown context from previous scans:\n${memoryText}` : '');
+  const system = buildSystemPrompt(context, memory);
 
   const messages: any[] = [...initialMessages];
 
@@ -377,65 +185,4 @@ async function runConversation(
     pendingPrompt,
     messages,
   };
-}
-
-/**
- * Run a scan through Claude. The active context note's instructions become the
- * system prompt (with any {{fieldId}} tokens substituted from fieldValues);
- * enabled MCP servers are attached via the API's MCP connector so Claude can
- * execute tools (e.g. ScanPower) server-side.
- */
-export async function runScan(
-  apiKey: string,
-  settings: AppSettings,
-  context: ContextNote | undefined,
-  memory: ContextNote | undefined,
-  scan: ScanEvent,
-  fieldValues: Record<string, string> | undefined,
-  callbacks: RunCallbacks,
-): Promise<RunResult> {
-  const resolvedContext = context
-    ? {
-        ...context,
-        instructions: substituteFields(context.instructions, {
-          ...parseMemoryFacts(memory?.instructions),
-          ...expandFieldAliases(context.promptFields, fieldValues),
-        }),
-      }
-    : context;
-
-  const fieldLines =
-    context?.promptFields && fieldValues
-      ? context.promptFields
-          .map((f) => `${f.label}: ${fieldValues[f.id] ?? ''}`)
-          .filter((line) => line.split(': ')[1])
-          .join('\n')
-      : '';
-
-  const scanLine = scan.data
-    ? `Scanned barcode: ${scan.data}\nSymbology: ${scan.type}\nScanned at: ${new Date(scan.timestamp).toISOString()}`
-    : `No barcode scanned — running the active context directly at ${new Date(scan.timestamp).toISOString()}.`;
-
-  const initialMessages = [
-    {
-      role: 'user',
-      content: scanLine + (fieldLines ? `\n\nProvided details:\n${fieldLines}` : ''),
-    },
-  ];
-
-  return runConversation(apiKey, settings, resolvedContext, memory, initialMessages, callbacks);
-}
-
-/** Answer a pendingPrompt (ASK or CHOOSE) and continue the same conversation. */
-export async function continueScan(
-  apiKey: string,
-  settings: AppSettings,
-  context: ContextNote | undefined,
-  memory: ContextNote | undefined,
-  priorMessages: any[],
-  answer: string,
-  callbacks: RunCallbacks,
-): Promise<RunResult> {
-  const messages = [...priorMessages, { role: 'user', content: answer }];
-  return runConversation(apiKey, settings, context, memory, messages, callbacks);
 }

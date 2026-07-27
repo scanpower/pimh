@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Animated,
@@ -18,7 +18,8 @@ import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-ca
 import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
-import { continueScan, expandFieldAliases, parseMemoryFacts, runScan } from '../lib/claude';
+import { continueScan, hasKeyFor, keyLabelFor, runScan } from '../lib/agent';
+import { expandFieldAliases, parseMemoryFacts } from '../lib/templating';
 import { getOperation } from '../lib/apiSpecs';
 import { callOperation } from '../lib/directApi';
 import { summarizeApiResult } from '../lib/apiSummary';
@@ -52,17 +53,19 @@ const MAX_TOOL_BODY_CHARS = 2000;
 
 interface Props {
   apiKey: string;
+  openAiKey: string;
   settings: AppSettings;
   contexts: ContextNote[];
   onContextsChange: (contexts: ContextNote[]) => void;
   /** Bumped by the parent when the Scan tab is tapped while already active — acts like "Scan again". */
   resetSignal?: number;
-  /** Notifies the parent when a Claude request is in flight, e.g. to animate the header. */
+  /** Notifies the parent when a model request is in flight, e.g. to animate the header. */
   onRunningChange?: (running: boolean) => void;
 }
 
 export default function ScanScreen({
   apiKey,
+  openAiKey,
   settings,
   contexts,
   onContextsChange,
@@ -75,6 +78,8 @@ export default function ScanScreen({
   const [manualCode, setManualCode] = useState('');
   const [run, setRun] = useState<AgentRun>({ status: 'idle', blocks: [] });
   const busyRef = useRef(false);
+
+  const keys = useMemo(() => ({ anthropic: apiKey, openai: openAiKey }), [apiKey, openAiKey]);
 
   const activeContext = contexts.find((c) => c.active);
   const memoryContext = contexts.find((c) => c.isMemory);
@@ -245,11 +250,11 @@ export default function ScanScreen({
         return;
       }
 
-      if (!apiKey) {
+      if (!hasKeyFor(settings.model, keys)) {
         setRun({
           status: 'error',
           blocks: [],
-          error: 'No Claude API key set. Add one in Settings.',
+          error: `No ${keyLabelFor(settings.model)} set. Add one in Settings.`,
         });
         busyRef.current = false;
         return;
@@ -257,7 +262,7 @@ export default function ScanScreen({
 
       setRun({ status: 'running', blocks: [] });
       try {
-        const result = await runScan(apiKey, settings, activeContext, memoryContext, scan, fieldValues, {
+        const result = await runScan(keys, settings, activeContext, memoryContext, scan, fieldValues, {
           onBlocks: (blocks) => setRun({ status: 'running', blocks }),
         });
         setRun({
@@ -279,7 +284,7 @@ export default function ScanScreen({
         busyRef.current = false;
       }
     },
-    [apiKey, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
+    [keys, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
   );
 
   const startRun = useCallback(
@@ -318,7 +323,7 @@ export default function ScanScreen({
       const priorBlocks = run.blocks;
       setRun({ status: 'running', blocks: priorBlocks });
       try {
-        const result = await continueScan(apiKey, settings, activeContext, memoryContext, run.messages, trimmed, {
+        const result = await continueScan(keys, settings, activeContext, memoryContext, run.messages, trimmed, {
           onBlocks: (blocks) => setRun({ status: 'running', blocks: [...priorBlocks, ...blocks] }),
         });
         setRun({
@@ -336,7 +341,7 @@ export default function ScanScreen({
         busyRef.current = false;
       }
     },
-    [run.messages, run.blocks, apiKey, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
+    [run.messages, run.blocks, keys, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
   );
 
   const onBarcodeScanned = useCallback(

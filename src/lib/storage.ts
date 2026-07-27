@@ -5,6 +5,7 @@ import { AppSettings, ContextNote, McpServerConfig, StoredOAuthTokens } from '..
 const CONTEXTS_KEY = 'midg.contexts.v1';
 const SETTINGS_KEY = 'midg.settings.v1';
 const API_KEY_KEY = 'midg.anthropic_api_key';
+const OPENAI_API_KEY_KEY = 'midg.openai_api_key';
 const OAUTH_KEY_PREFIX = 'midg.mcp_oauth.';
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -113,6 +114,16 @@ export async function loadApiKey(): Promise<string> {
 export async function saveApiKey(key: string): Promise<void> {
   if (key) await SecureStore.setItemAsync(API_KEY_KEY, key);
   else await SecureStore.deleteItemAsync(API_KEY_KEY);
+}
+
+/** Stored separately from the Anthropic key — a scan uses whichever the selected model needs. */
+export async function loadOpenAiKey(): Promise<string> {
+  return (await SecureStore.getItemAsync(OPENAI_API_KEY_KEY)) ?? '';
+}
+
+export async function saveOpenAiKey(key: string): Promise<void> {
+  if (key) await SecureStore.setItemAsync(OPENAI_API_KEY_KEY, key);
+  else await SecureStore.deleteItemAsync(OPENAI_API_KEY_KEY);
 }
 
 function oauthKey(serverId: string): string {

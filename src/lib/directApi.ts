@@ -1,6 +1,6 @@
 import { AppSettings, McpServerConfig } from '../types';
 import { ApiOperation, getAuthOperation, getSpecLabel } from './apiSpecs';
-import { substituteFields } from './claude';
+import { substituteFields } from './templating';
 
 const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
 

@@ -8,12 +8,15 @@ import {
   DEFAULT_SETTINGS,
   loadApiKey,
   loadContexts,
+  loadOpenAiKey,
   loadSettings,
   saveApiKey,
+  saveOpenAiKey,
   saveContexts,
   saveSettings,
 } from './src/lib/storage';
 import { AppSettings, ContextNote } from './src/types';
+import { shortLabelFor } from './src/lib/models';
 import { colors } from './src/ui/theme';
 
 type Tab = 'scan' | 'contexts' | 'settings';
@@ -25,7 +28,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ];
 
 /**
- * Pulses opacity while `active`, to show "Claude" is working without a separate spinner row.
+ * Pulses opacity while `active`, to show the model is working without a separate spinner row.
  * Wraps children in an Animated.View rather than animating a nested Animated.Text directly —
  * an Animated.Text nested inside a plain Text (an inline text span) doesn't reliably re-animate
  * on every frame, so it reads as a single flash rather than a continuous pulse.
@@ -62,8 +65,9 @@ export default function App() {
   const [contexts, setContexts] = useState<ContextNote[]>([]);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [apiKey, setApiKey] = useState('');
+  const [openAiKey, setOpenAiKey] = useState('');
   const [scanResetSignal, setScanResetSignal] = useState(0);
-  const [claudeRunning, setClaudeRunning] = useState(false);
+  const [modelRunning, setModelRunning] = useState(false);
 
   const handleTabPress = (id: Tab) => {
     if (id === 'scan' && tab === 'scan') {
@@ -75,10 +79,16 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
-      const [ctx, s, key] = await Promise.all([loadContexts(), loadSettings(), loadApiKey()]);
+      const [ctx, s, key, oaKey] = await Promise.all([
+        loadContexts(),
+        loadSettings(),
+        loadApiKey(),
+        loadOpenAiKey(),
+      ]);
       setContexts(ctx);
       setSettings(s);
       setApiKey(key);
+      setOpenAiKey(oaKey);
       setLoaded(true);
     })();
   }, []);
@@ -98,6 +108,11 @@ export default function App() {
     saveApiKey(key);
   }, []);
 
+  const handleOpenAiKeyChange = useCallback((key: string) => {
+    setOpenAiKey(key);
+    saveOpenAiKey(key);
+  }, []);
+
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
@@ -105,8 +120,8 @@ export default function App() {
         <Text style={styles.headerTitle}>pimh</Text>
         <View style={styles.headerSubRow}>
           <Text style={styles.headerSub}>scan → context → </Text>
-          <ShimmerText active={claudeRunning} style={[styles.headerSub, claudeRunning && styles.headerSubClaude]}>
-            Claude
+          <ShimmerText active={modelRunning} style={[styles.headerSub, modelRunning && styles.headerSubModel]}>
+            {shortLabelFor(settings.model)}
           </ShimmerText>
         </View>
       </View>
@@ -114,11 +129,12 @@ export default function App() {
         {!loaded ? null : tab === 'scan' ? (
           <ScanScreen
             apiKey={apiKey}
+            openAiKey={openAiKey}
             settings={settings}
             contexts={contexts}
             onContextsChange={handleContextsChange}
             resetSignal={scanResetSignal}
-            onRunningChange={setClaudeRunning}
+            onRunningChange={setModelRunning}
           />
         ) : tab === 'contexts' ? (
           <ContextsScreen contexts={contexts} onChange={handleContextsChange} />
@@ -126,6 +142,8 @@ export default function App() {
           <SettingsScreen
             apiKey={apiKey}
             onApiKeyChange={handleApiKeyChange}
+            openAiKey={openAiKey}
+            onOpenAiKeyChange={handleOpenAiKeyChange}
             settings={settings}
             onSettingsChange={handleSettingsChange}
           />
@@ -157,7 +175,7 @@ const styles = StyleSheet.create({
   headerTitle: { color: colors.text, fontSize: 20, fontWeight: '800' },
   headerSubRow: { flexDirection: 'row', alignItems: 'baseline' },
   headerSub: { color: colors.textDim, fontSize: 12 },
-  headerSubClaude: { color: colors.claude, fontWeight: '600' },
+  headerSubModel: { color: colors.claude, fontWeight: '600' },
   tabBar: {
     flexDirection: 'row',
     borderTopWidth: 1,

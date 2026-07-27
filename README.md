@@ -7,9 +7,10 @@ calls for it.
 
 A context takes one of two paths:
 
-- **Claude** — the context's instructions become the system prompt, and Claude can
+- **A model** — the context's instructions become the system prompt, and the model can
   call tools on any enabled **MCP server** (e.g. ScanPower's inventory/shipment
   tools) to look things up or take action. Use this when the work needs judgment.
+  Both Claude and GPT models are supported, with the same tool access either way.
 - **Direct API call** — the context is wired to a single operation from a bundled
   OpenAPI spec and calls it straight over HTTPS, skipping Claude and MCP entirely.
   Use this when the work is deterministic (e.g. "print a label for this SKU"), where
@@ -102,8 +103,12 @@ src/
     ContextsScreen.tsx      Create/edit/activate contexts, Memory, prompt fields, API operation
     SettingsScreen.tsx      API key, model, MCP servers/OAuth, printer selection, display toggles
   lib/
-    claude.ts               Calls the Claude Messages API directly via fetch (MCP connector,
-                             adaptive thinking, ASK/CHOOSE/MEMORY signal lines, templating)
+    agent.ts                Entry point for a scan: routes to the selected model's provider
+    agentCommon.ts          System prompt, signal lines, MCP resolution — shared by providers
+    claude.ts               Anthropic Messages API via fetch (MCP connector, adaptive thinking)
+    openai.ts               OpenAI Responses API via fetch (MCP tools, no approval round-trip)
+    models.ts               Model catalog: id, display label, provider
+    templating.ts           {{scan}}/{{fieldId}}/memory-fact substitution
     apiSpecs.ts             Ingests src/apiSpecs/*.json into an operation catalog
     directApi.ts            Executes an operation: templating, auth, session token, logging
     apiDefaults.ts          Generates starter parameter/body templates from a schema
@@ -121,8 +126,9 @@ src/
 - Node.js and npm
 - [Expo Go](https://expo.dev/go) on a physical iOS device (fastest way to test — this
   app targets iOS features like AirPrint), or an iOS Simulator
-- A [Claude API key](https://console.anthropic.com/) (`sk-ant-...`) — needed for
-  Claude-backed contexts; direct-API-only contexts don't use it
+- A [Claude API key](https://console.anthropic.com/) (`sk-ant-...`) and/or an
+  [OpenAI API key](https://platform.openai.com/) (`sk-...`) — whichever the selected
+  model needs; direct-API-only contexts use neither
 - Xcode + Command Line Tools if you want to run the iOS Simulator from this machine
 
 ## Setup
@@ -142,8 +148,8 @@ Then either:
 - press `i` in the terminal to launch the iOS Simulator (requires Xcode).
 
 On first launch, open the **Settings** tab and:
-1. Paste in your Claude API key.
-2. Pick a model.
+1. Paste in your Claude API key, your OpenAI API key, or both.
+2. Pick a model — this decides which API a scan is sent to and which key authenticates it.
 3. Optionally enable and configure an MCP server (e.g. ScanPower) — static token or
    OAuth, depending on what the server requires. This also supplies the credentials
    used for direct API calls against that provider's spec.
@@ -160,11 +166,15 @@ npx tsc --noEmit
 
 ## Notes
 
-- The Claude Messages API is called directly via `fetch` rather than the
-  `@anthropic-ai/sdk` package, since the SDK's use of Node's `node:fs` for credential
-  handling can't be bundled for React Native by Metro/Hermes.
-- API keys and MCP OAuth tokens are stored in the device Keychain via
-  `expo-secure-store`, never in plain AsyncStorage. Direct-API session tokens are held
+- Both provider APIs are called directly via `fetch` rather than their official SDKs,
+  since those pull in Node built-ins (e.g. `node:fs` for credential handling) that
+  Metro/Hermes can't bundle for React Native.
+- MCP works on both providers but by different mechanisms: Anthropic's is a server-side
+  connector (`mcp_servers` + `mcp_toolset`), OpenAI's is a `type: "mcp"` entry in `tools`
+  on `/v1/responses` sent with `require_approval: "never"`. A conversation can't be
+  continued across a model switch, since the transcript is in the provider's own format.
+- API keys (Claude and OpenAI, stored separately) and MCP OAuth tokens are kept in the
+  device Keychain via `expo-secure-store`, never in plain AsyncStorage. Direct-API session tokens are held
   in memory only.
 - Printing uses `expo-print` (the system print dialog / AirPrint), so it works inside
   Expo Go with no custom native build required — this supports WiFi/AirPrint printers,

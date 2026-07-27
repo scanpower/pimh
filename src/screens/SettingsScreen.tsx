@@ -12,11 +12,10 @@ import {
   View,
 } from 'react-native';
 import { AppSettings, McpAuthType, McpOAuthConfig, McpServerConfig } from '../types';
+import { MODELS, providerFor } from '../lib/models';
 import { connectMcpServer, deriveBaseUrl, disconnectMcpServer, getOAuthStatus, OAuthStatus } from '../lib/mcpOAuth';
 import { printContent, selectPrinter } from '../lib/print';
 import { colors } from '../ui/theme';
-
-const MODELS = ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'];
 
 const AUTH_TYPES: { id: McpAuthType; label: string }[] = [
   { id: 'none', label: 'None' },
@@ -34,13 +33,24 @@ const EMPTY_OAUTH: McpOAuthConfig = {
 interface Props {
   apiKey: string;
   onApiKeyChange: (key: string) => void;
+  openAiKey: string;
+  onOpenAiKeyChange: (key: string) => void;
   settings: AppSettings;
   onSettingsChange: (settings: AppSettings) => void;
 }
 
-export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSettingsChange }: Props) {
+export default function SettingsScreen({
+  apiKey,
+  onApiKeyChange,
+  openAiKey,
+  onOpenAiKeyChange,
+  settings,
+  onSettingsChange,
+}: Props) {
   const [keyDraft, setKeyDraft] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
+  const [openAiDraft, setOpenAiDraft] = useState(openAiKey);
+  const [showOpenAiKey, setShowOpenAiKey] = useState(false);
   const [selectingPrinter, setSelectingPrinter] = useState(false);
   const [testPrinting, setTestPrinting] = useState(false);
 
@@ -140,15 +150,51 @@ export default function SettingsScreen({ apiKey, onApiKeyChange, settings, onSet
       </View>
 
       <View>
+        <Text style={styles.sectionTitle}>OpenAI API key</Text>
+        <Text style={styles.helpText}>
+          Only needed for the GPT models below. Stored securely on this device (Keychain), separately
+          from the Claude key. Get one at platform.openai.com.
+        </Text>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+          <TextInput
+            style={[styles.input, { flex: 1 }]}
+            placeholder="sk-…"
+            placeholderTextColor={colors.textDim}
+            value={openAiDraft}
+            onChangeText={setOpenAiDraft}
+            secureTextEntry={!showOpenAiKey}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={styles.secondaryButton} onPress={() => setShowOpenAiKey((v) => !v)}>
+            <Text style={styles.secondaryButtonText}>{showOpenAiKey ? 'Hide' : 'Show'}</Text>
+          </TouchableOpacity>
+        </View>
+        <TouchableOpacity
+          style={[styles.primaryButton, { marginTop: 8 }]}
+          onPress={() => {
+            onOpenAiKeyChange(openAiDraft.trim());
+            Alert.alert('Saved', openAiDraft.trim() ? 'OpenAI API key saved.' : 'OpenAI API key cleared.');
+          }}
+        >
+          <Text style={styles.primaryButtonText}>Save key</Text>
+        </TouchableOpacity>
+      </View>
+
+      <View>
         <Text style={styles.sectionTitle}>Model</Text>
+        <Text style={styles.helpText}>
+          The selected model decides which API a scan is sent to, and which key above
+          authenticates it.
+        </Text>
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
           {MODELS.map((m) => (
             <TouchableOpacity
-              key={m}
-              style={[styles.chip, settings.model === m && styles.chipActive]}
-              onPress={() => onSettingsChange({ ...settings, model: m })}
+              key={m.id}
+              style={[styles.chip, settings.model === m.id && styles.chipActive]}
+              onPress={() => onSettingsChange({ ...settings, model: m.id })}
             >
-              <Text style={settings.model === m ? styles.chipTextActive : styles.chipText}>{m}</Text>
+              <Text style={settings.model === m.id ? styles.chipTextActive : styles.chipText}>{m.label}</Text>
             </TouchableOpacity>
           ))}
         </View>
