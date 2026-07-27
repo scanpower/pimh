@@ -23,7 +23,15 @@ A context takes one of two paths:
    (e.g. quantity, condition).
 3. Then, depending on the context:
    - **Direct API call** — the chosen operation's parameters and JSON body are built
-     from templates and sent. See [Direct API calls](#direct-api-calls) below.
+     from templates and sent, and the response is summarized into the same results view
+     a Claude answer renders into. Each object in a returned collection (e.g. each
+     inbound plan) gets its own collapsible section — the first opens automatically —
+     with fields shown under the API's own attribute names (`v1_batch_id`, not a re-cased
+     variant) and null attributes omitted. A PDF is noted by size rather than dumped, and
+     the raw response stays available under *Show tool calls*. Tapping a value offers to
+     **Copy** it or **Add to Memory**, which appends it as a `v1_batch_id: 31822` fact —
+     reusable by a later scan as `{{v1_batch_id}}`, the same name the API uses.
+     See [Direct API calls](#direct-api-calls) below.
    - **Claude** — the context's instructions become the system prompt, sent with the
      scan and any collected fields. Claude may call MCP tools, and its reply is
      rendered as formatted markdown. It can also end with:
@@ -99,6 +107,7 @@ src/
     apiSpecs.ts             Ingests src/apiSpecs/*.json into an operation catalog
     directApi.ts            Executes an operation: templating, auth, session token, logging
     apiDefaults.ts          Generates starter parameter/body templates from a schema
+    apiSummary.ts           Turns an API response into collapsible result sections
     mcpOAuth.ts             OAuth 2.0 + PKCE flow for MCP servers that require it
     print.ts                expo-print integration: PDF vs. plain-text printing, printer selection
     storage.ts              AsyncStorage (settings/contexts) + SecureStore (API key, OAuth tokens)

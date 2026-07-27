@@ -113,6 +113,19 @@ export type AgentBlock =
   /** `tool` is the name of the tool call this result answers, when known (see contentToBlocks). */
   | { kind: 'tool_result'; content: string; isError: boolean; tool?: string }
   | { kind: 'warning'; text: string }
+  /**
+   * One collapsible group of fields from a direct API response — e.g. a single inbound plan
+   * out of an `inbound_plans` array. Labels keep the API's own attribute name verbatim, so a
+   * value saved to Memory can be referenced by that same name; null attributes are dropped
+   * rather than shown as empty.
+   */
+  | {
+      kind: 'api_section';
+      title: string;
+      rows: { label: string; value: string }[];
+      /** The section to open on arrival — the first object of the returned collection. */
+      primary?: boolean;
+    }
   /** Diagnostic record of one printContent() call — shown alongside tool results for debugging. */
   | { kind: 'print_log'; text: string; isError: boolean };
 

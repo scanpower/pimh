@@ -15,11 +15,13 @@ import {
   View,
 } from 'react-native';
 import { BarcodeScanningResult, CameraView, useCameraPermissions } from 'expo-camera';
+import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
 import { continueScan, expandFieldAliases, parseMemoryFacts, runScan } from '../lib/claude';
 import { getOperation } from '../lib/apiSpecs';
 import { callOperation } from '../lib/directApi';
+import { summarizeApiResult } from '../lib/apiSummary';
 import { printContent } from '../lib/print';
 import { colors } from '../ui/theme';
 import { markdownItInstance, markdownRules, markdownStyles } from '../ui/markdown';
@@ -44,6 +46,9 @@ const BARCODE_TYPES = [
 
 // Cap how many memory facts accumulate before we start dropping the oldest.
 const MAX_MEMORY_LINES = 40;
+
+// Upper bound on how much of a tool result body is handed to <Text> — see ToolLine.
+const MAX_TOOL_BODY_CHARS = 2000;
 
 interface Props {
   apiKey: string;
@@ -151,6 +156,25 @@ export default function ScanScreen({
     [settings.printer],
   );
 
+  // Tapping a value in an API result section offers to copy it or keep it. "Add to Memory"
+  // writes "Label: value", the shape parseMemoryFacts() reads back, so a fact captured here
+  // becomes available to later scans as a {{token}} as well as being shown to Claude.
+  const handleValuePress = useCallback(
+    (label: string, value: string) => {
+      Alert.alert(label, value, [
+        {
+          text: 'Copy',
+          onPress: () => {
+            void Clipboard.setStringAsync(value);
+          },
+        },
+        { text: 'Add to Memory', onPress: () => mergeMemoryNotes([`${label}: ${value}`]) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    },
+    [mergeMemoryNotes],
+  );
+
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
   const toggleTool = useCallback((i: number) => {
     setExpandedTools((prev) => {
@@ -203,7 +227,14 @@ export default function ScanScreen({
             isError: result.status < 200 || result.status >= 300,
             tool,
           };
-          setRun({ status: 'done', blocks: [block] });
+          // Pair the raw result with a rendered summary, so a direct API scan reads like a
+          // Claude answer instead of showing nothing until "Show tool calls" is switched on.
+          const summary = summarizeApiResult(op, result);
+          const blocks = [...summary, block];
+          // Open the section the summarizer flagged (the first object of the collection) so the
+          // answer is on screen without a tap; the rest stay collapsed to keep the list scannable.
+          setExpandedTools(new Set(blocks.flatMap((b, i) => (b.kind === 'api_section' && b.primary ? [i] : []))));
+          setRun({ status: 'done', blocks });
           void maybePrintToolResults([block]);
         } catch (e: any) {
           setRun({ status: 'error', blocks: [], error: e?.message ?? String(e) });
@@ -411,6 +442,17 @@ export default function ScanScreen({
             <Text style={styles.warningText}>⚠ {block.text}</Text>
           </View>
         );
+      case 'api_section':
+        return (
+          <ApiSection
+            key={i}
+            title={block.title}
+            rows={block.rows}
+            expanded={expandedTools.has(i)}
+            onToggle={() => toggleTool(i)}
+            onValuePress={handleValuePress}
+          />
+        );
       case 'print_log':
         return (
           <ToolLine
@@ -518,6 +560,9 @@ export default function ScanScreen({
             call/result detail at the bottom — regardless of the order blocks arrived in. */}
         {indexedBlocks.filter(({ block }) => block.kind === 'warning').map(({ block, i }) => renderBlock(block, i))}
         {indexedBlocks.filter(({ block }) => block.kind === 'text').map(({ block, i }) => renderBlock(block, i))}
+        {indexedBlocks
+          .filter(({ block }) => block.kind === 'api_section')
+          .map(({ block, i }) => renderBlock(block, i))}
         {run.pendingPrompt && (
           <View style={styles.promptCard}>
             <Text style={styles.promptQuestion}>{run.pendingPrompt.question}</Text>
@@ -618,6 +663,52 @@ export default function ScanScreen({
   );
 }
 
+/**
+ * One group of fields from a direct API response — e.g. a single inbound plan. Collapsed shows
+ * the title and field count; expanded lists each attribute as `Label  value`. Null attributes
+ * were already dropped upstream (see apiSummary.toRows), so every row here has a value.
+ */
+function ApiSection({
+  title,
+  rows,
+  expanded,
+  onToggle,
+  onValuePress,
+}: {
+  title: string;
+  rows: { label: string; value: string }[];
+  expanded: boolean;
+  onToggle: () => void;
+  onValuePress: (label: string, value: string) => void;
+}) {
+  // The card is a plain View with the header and each row as separate touch targets: nesting
+  // a row's touchable inside a card-wide one would make every tap ambiguous and dim the whole
+  // card on press. Row keys carry the index because flattening nested objects can legitimately
+  // produce two rows with the same label (e.g. an OperationId at two depths).
+  return (
+    <View style={styles.sectionCard}>
+      <TouchableOpacity style={styles.sectionHeader} onPress={onToggle} activeOpacity={0.7}>
+        <Text style={styles.sectionTitle}>
+          {expanded ? '▾' : '▸'} {title}
+        </Text>
+        <Text style={styles.sectionCount}>{rows.length}</Text>
+      </TouchableOpacity>
+      {expanded &&
+        rows.map((row, idx) => (
+          <TouchableOpacity
+            key={`${row.label}-${idx}`}
+            style={styles.sectionRow}
+            onPress={() => onValuePress(row.label, row.value)}
+            activeOpacity={0.6}
+          >
+            <Text style={styles.sectionRowLabel}>{row.label}</Text>
+            <Text style={styles.sectionRowValue}>{row.value}</Text>
+          </TouchableOpacity>
+        ))}
+    </View>
+  );
+}
+
 /** A tool call/result card: collapsed to one line, tap to expand the full title + body. */
 function ToolLine({
   title,
@@ -635,6 +726,14 @@ function ToolLine({
   onToggle: () => void;
 }) {
   const header = `${expanded ? '▾' : '▸'} ${title}`;
+  // A tool result can be enormous — a label response is a PDF data URI of ~240,000 characters.
+  // numberOfLines only clips what's *drawn*: the full string is still laid out and measured,
+  // which corrupts the enclosing ScrollView's content height and leaves the bottom of the
+  // results unreachable whenever "Show tool calls" is on. Cap what reaches Text instead.
+  const shown =
+    body.length > MAX_TOOL_BODY_CHARS
+      ? `${body.slice(0, MAX_TOOL_BODY_CHARS)}…\n\n[truncated — ${body.length} characters total]`
+      : body;
   return (
     <TouchableOpacity
       style={[styles.toolCard, borderColor ? { borderColor } : null]}
@@ -644,12 +743,12 @@ function ToolLine({
       {expanded ? (
         <>
           <Text style={[styles.toolTitle, { color: titleColor }]}>{header}</Text>
-          <Text style={styles.toolBody}>{body}</Text>
+          <Text style={styles.toolBody}>{shown}</Text>
         </>
       ) : (
         <Text numberOfLines={1} ellipsizeMode="tail">
           <Text style={[styles.toolTitleInline, { color: titleColor }]}>{header}</Text>
-          <Text style={styles.toolBody}> {body}</Text>
+          <Text style={styles.toolBody}> {shown}</Text>
         </Text>
       )}
     </TouchableOpacity>
@@ -728,6 +827,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   toolCardError: { borderColor: colors.danger },
+  sectionCard: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: 8,
+    padding: 10,
+    marginBottom: 10,
+  },
+  sectionHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  sectionTitle: { color: colors.accent, fontWeight: '700', fontSize: 14, flex: 1 },
+  sectionCount: { color: colors.textDim, fontSize: 11 },
+  sectionRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginTop: 8 },
+  // Fixed-width label column so values line up down the section.
+  sectionRowLabel: { color: colors.textDim, fontSize: 12, width: 132 },
+  sectionRowValue: { color: colors.text, fontSize: 13, flex: 1 },
   warningCard: {
     backgroundColor: colors.surface,
     borderColor: colors.warning,
