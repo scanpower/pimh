@@ -8,6 +8,15 @@ const API_KEY_KEY = 'pimh.anthropic_api_key';
 const OPENAI_API_KEY_KEY = 'pimh.openai_api_key';
 const OAUTH_KEY_PREFIX = 'pimh.mcp_oauth.';
 
+// The app stored under a `midg.` prefix before the midg -> pimw -> pimh renames. These are read
+// once by migrateLegacyStorage() so an existing install keeps its contexts, API keys and MCP
+// sign-ins; drop them (and the migration) once every install has launched on this build.
+const LEGACY_CONTEXTS_KEY = 'midg.contexts.v1';
+const LEGACY_SETTINGS_KEY = 'midg.settings.v1';
+const LEGACY_API_KEY_KEY = 'midg.anthropic_api_key';
+const LEGACY_OPENAI_API_KEY_KEY = 'midg.openai_api_key';
+const LEGACY_OAUTH_KEY_PREFIX = 'midg.mcp_oauth.';
+
 
 export const DEFAULT_SETTINGS: AppSettings = {
   model: 'claude-opus-5',
@@ -32,6 +41,59 @@ export const DEFAULT_SETTINGS: AppSettings = {
     },
   ],
 };
+
+/** Move one AsyncStorage value to its new key, leaving an already-migrated value alone. */
+async function migrateAsyncKey(legacyKey: string, key: string): Promise<void> {
+  if ((await AsyncStorage.getItem(key)) !== null) return; // already migrated, or written fresh
+  const legacy = await AsyncStorage.getItem(legacyKey);
+  if (legacy === null) return;
+  await AsyncStorage.setItem(key, legacy);
+  await AsyncStorage.removeItem(legacyKey);
+}
+
+/** As migrateAsyncKey, for Keychain items. */
+async function migrateSecureKey(legacyKey: string, key: string): Promise<void> {
+  try {
+    if (await SecureStore.getItemAsync(key)) return;
+    const legacy = await SecureStore.getItemAsync(legacyKey);
+    if (!legacy) return;
+    await SecureStore.setItemAsync(key, legacy);
+    await SecureStore.deleteItemAsync(legacyKey);
+  } catch {
+    // A Keychain read/write failing shouldn't stop the app starting — worst case the item
+    // stays under its old name and the user re-enters it.
+  }
+}
+
+/**
+ * One-time move of everything stored under the former `midg.` names to `pimh.`. Safe to run on
+ * every launch: each item is copied only when nothing exists under the new key, and the old
+ * copy is removed once it has, so a value written since the rename always wins. Must finish
+ * before anything is loaded, or an existing install reads empty and then saves over its own
+ * pre-rename data.
+ */
+export async function migrateLegacyStorage(): Promise<void> {
+  await migrateAsyncKey(LEGACY_CONTEXTS_KEY, CONTEXTS_KEY);
+  await migrateAsyncKey(LEGACY_SETTINGS_KEY, SETTINGS_KEY);
+  await migrateSecureKey(LEGACY_API_KEY_KEY, API_KEY_KEY);
+  await migrateSecureKey(LEGACY_OPENAI_API_KEY_KEY, OPENAI_API_KEY_KEY);
+
+  // OAuth tokens are keyed per server id and SecureStore can't be enumerated, so the migrated
+  // settings are the only record of which ids exist — hence after the settings move above.
+  const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+  if (!raw) return;
+  try {
+    const servers = JSON.parse(raw)?.mcpServers;
+    if (!Array.isArray(servers)) return;
+    for (const server of servers) {
+      if (!server?.id) continue;
+      const safeId = String(server.id).replace(/[^a-zA-Z0-9._-]/g, '_');
+      await migrateSecureKey(`${LEGACY_OAUTH_KEY_PREFIX}${safeId}`, `${OAUTH_KEY_PREFIX}${safeId}`);
+    }
+  } catch {
+    // Unreadable settings — nothing to learn about server ids, so nothing to migrate.
+  }
+}
 
 /** Backfill fields for MCP server configs saved before OAuth support existed. */
 function normalizeServer(s: any): McpServerConfig {
@@ -172,10 +234,16 @@ async function deleteSecure(key: string): Promise<void> {
  */
 export async function resetAllData(servers: McpServerConfig[]): Promise<void> {
   await Promise.all([
-    AsyncStorage.multiRemove([CONTEXTS_KEY, SETTINGS_KEY]),
+    // Legacy names too, so a reset still erases everything if the migration never ran.
+    AsyncStorage.multiRemove([CONTEXTS_KEY, SETTINGS_KEY, LEGACY_CONTEXTS_KEY, LEGACY_SETTINGS_KEY]),
     deleteSecure(API_KEY_KEY),
     deleteSecure(OPENAI_API_KEY_KEY),
-    ...servers.map((s) => clearOAuthTokens(s.id)),
+    deleteSecure(LEGACY_API_KEY_KEY),
+    deleteSecure(LEGACY_OPENAI_API_KEY_KEY),
+    ...servers.flatMap((s) => {
+      const safeId = String(s.id).replace(/[^a-zA-Z0-9._-]/g, '_');
+      return [clearOAuthTokens(s.id), deleteSecure(`${LEGACY_OAUTH_KEY_PREFIX}${safeId}`)];
+    }),
   ]);
 }
 

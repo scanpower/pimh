@@ -417,7 +417,18 @@ function McpServerCard({
     try {
       await connectMcpServer(server);
       await refreshStatus();
-      Alert.alert('Connected', `${server.name} is now connected.`);
+      // Signing in is only ever done because you want the server used, and a disabled server
+      // is dropped from the request silently — no warning, the model just reports having no
+      // tools. Leaving the toggle off after a successful connection makes that a trap, so
+      // switch it on here rather than relying on the user to notice a second control.
+      const wasDisabled = !server.enabled;
+      if (wasDisabled) onUpdate({ enabled: true });
+      Alert.alert(
+        'Connected',
+        wasDisabled
+          ? `${server.name} is now connected, and has been switched on so its tools go out with every scan.`
+          : `${server.name} is now connected.`,
+      );
     } catch (e: any) {
       Alert.alert('Connection failed', e?.message ?? String(e));
     } finally {

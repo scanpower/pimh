@@ -10,6 +10,7 @@ import {
   loadContexts,
   loadOpenAiKey,
   loadSettings,
+  migrateLegacyStorage,
   resetAllData,
   saveApiKey,
   saveOpenAiKey,
@@ -82,6 +83,9 @@ export default function App() {
 
   useEffect(() => {
     (async () => {
+      // Must finish before anything is read, or a pre-rename install loads empty and then
+      // overwrites its own data on the first save.
+      await migrateLegacyStorage();
       const [ctx, s, key, oaKey] = await Promise.all([
         loadContexts(),
         loadSettings(),
