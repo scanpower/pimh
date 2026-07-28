@@ -8,6 +8,7 @@ import {
   RunResult,
 } from './agentCommon';
 import { debugLog } from './debugLog';
+import { supportsAdaptiveThinking } from './models';
 
 const MAX_CONTINUATIONS = 5;
 const API_URL = 'https://api.anthropic.com/v1/messages';
@@ -98,9 +99,13 @@ export async function runAnthropicConversation(
   const baseBody: Record<string, unknown> = {
     model: settings.model,
     max_tokens: 16000,
-    thinking: { type: 'adaptive' },
     system,
   };
+  // Only for models that accept it — see supportsAdaptiveThinking. Sending it to one that
+  // doesn't fails the request rather than being ignored.
+  if (supportsAdaptiveThinking(settings.model)) {
+    baseBody.thinking = { type: 'adaptive' };
+  }
   if (mcpServers.length > 0) {
     baseBody.mcp_servers = mcpServers;
     baseBody.tools = mcpTools;
