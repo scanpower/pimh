@@ -6122,6 +6122,157 @@
         ],
         "summary": "Get an AZ delivery window option from the database"
       }
+    },
+    "/api/scout/search/{query}": {
+      "get": {
+        "summary": "Wrapper around several SP-API calls for loading product, offers, and pricing data.",
+        "description": "This is a wrapper around several SP-API calls for loading product, offers, and pricing data.",
+        "operationId": "scoutSearch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Specific marketplace of the requested shipments. Defaults to current marketplace set in ScanPower.",
+            "in": "query",
+            "name": "marketplace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "allowEmptyValue": true,
+            "description": "Load pricing data",
+            "in": "query",
+            "name": "pricing",
+            "schema": {},
+            "x-isFlag": true
+          },
+          {
+            "allowEmptyValue": true,
+            "description": "Load offers",
+            "in": "query",
+            "name": "offers",
+            "schema": {},
+            "x-isFlag": true
+          },
+          {
+            "allowEmptyValue": true,
+            "description": "Load parent ASIN data, if any",
+            "in": "query",
+            "name": "parent",
+            "schema": {},
+            "x-isFlag": true
+          },
+          {
+            "$ref": "#/components/parameters/x-access-token"
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "items": {
+                      "items": {
+                        "properties": {
+                          "item": {
+                            "description": "[Item](https://developer-docs.amazon.com/sp-api/docs/catalog-items-api-v2022-04-01-reference#item)",
+                            "type": "object"
+                          },
+                          "marketplace": {
+                            "type": "string"
+                          },
+                          "offers": {
+                            "properties": {
+                              "Club": {
+                                "description": "[GetOffersResult](https://developer-docs.amazon.com/sp-api/docs/product-pricing-api-v0-reference#getoffersresult)",
+                                "type": "object"
+                              },
+                              "Collectible": {
+                                "description": "[GetOffersResult](https://developer-docs.amazon.com/sp-api/docs/product-pricing-api-v0-reference#getoffersresult)",
+                                "type": "object"
+                              },
+                              "New": {
+                                "description": "[GetOffersResult](https://developer-docs.amazon.com/sp-api/docs/product-pricing-api-v0-reference#getoffersresult)",
+                                "type": "object"
+                              },
+                              "Refurbished": {
+                                "description": "[GetOffersResult](https://developer-docs.amazon.com/sp-api/docs/product-pricing-api-v0-reference#getoffersresult)",
+                                "type": "object"
+                              },
+                              "Used": {
+                                "description": "[GetOffersResult](https://developer-docs.amazon.com/sp-api/docs/product-pricing-api-v0-reference#getoffersresult)",
+                                "type": "object"
+                              }
+                            },
+                            "type": "object"
+                          },
+                          "pricing": {
+                            "description": "[Price](https://developer-docs.amazon.com/sp-api/docs/product-pricing-api-v0-reference#price)",
+                            "type": "object"
+                          },
+                          "sizeTier": {
+                            "type": "string"
+                          },
+                          "storageFee": {
+                            "properties": {
+                              "Amount": {
+                                "type": "integer"
+                              },
+                              "CurrencyCode": {
+                                "type": "string"
+                              }
+                            },
+                            "type": "object"
+                          }
+                        },
+                        "type": "object"
+                      },
+                      "type": "array"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "$ref": "#/components/responses/400"
+          },
+          "401": {
+            "$ref": "#/components/responses/401"
+          },
+          "403": {
+            "$ref": "#/components/responses/403"
+          },
+          "404": {
+            "$ref": "#/components/responses/404"
+          },
+          "422": {
+            "$ref": "#/components/responses/422"
+          },
+          "429": {
+            "$ref": "#/components/responses/429"
+          }
+        },
+        "security": [
+          {
+            "bearer_auth": []
+          }
+        ],
+        "tags": [
+          "Amazon Catalog",
+          "Mobile"
+        ]
+      }
     }
   },
   "components": {
