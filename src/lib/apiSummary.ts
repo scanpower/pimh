@@ -33,6 +33,71 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 type Row = { label: string; value: string };
 
+// How deep a nested object is rendered inside a single row before it's summarized by field
+// count, and how many of its fields are listed. Value wrappers (below) resolve at any depth.
+const MAX_NEST_DEPTH = 3;
+const MAX_INLINE_FIELDS = 6;
+// Separates the fields of an object rendered inside a single row.
+const FIELD_SEP = ' · ';
+
+function clamp(text: string): string {
+  return text.length > MAX_VALUE_CHARS ? `${text.slice(0, MAX_VALUE_CHARS)}…` : text;
+}
+
+/**
+ * `{ value, unit? | currency?, ...provenance }` is a widespread JSON convention for a measured
+ * or localized attribute — every Amazon SP-API catalog attribute uses it, e.g.
+ * `{"unit":"pounds","value":11.45,"marketplace_id":"ATVPDKIKX0DER"}`. The payload is `value`;
+ * everything else is provenance, so a row shows the value and its unit and drops the rest.
+ * Returns null when this isn't that shape, including when `value` is itself a structure.
+ */
+function valueWrapperText(node: Record<string, unknown>): string | null {
+  const inner = node.value;
+  if (inner === null || inner === undefined) return null;
+  if (isPlainObject(inner) || Array.isArray(inner)) return null;
+  const unit = [node.unit, node.currency].find((u) => typeof u === 'string' && u);
+  return unit ? `${formatScalar(inner)} ${unit}` : formatScalar(inner);
+}
+
+/**
+ * Render a nested value on one line, for a row that keeps its own attribute name as the label.
+ * Returns null when there is nothing to show (empty, or null throughout).
+ */
+function formatNested(value: unknown, depth: number): string | null {
+  if (value === null || value === undefined) return null;
+
+  if (Array.isArray(value)) {
+    const items = value.filter((v) => v !== null && v !== undefined);
+    if (items.length === 0) return null;
+    // A one-element array is just its element. Reporting "1 item(s)" describes the wrapper and
+    // hides the only thing in it — which is exactly the shape SP-API returns every attribute in.
+    if (items.length === 1) return formatNested(items[0], depth);
+    if (!items.some(isPlainObject)) return items.map(formatScalar).join(', ');
+    // Several objects genuinely are a collection; summarize rather than bury the row.
+    return `${items.length} item(s)`;
+  }
+
+  if (isPlainObject(value)) {
+    const wrapped = valueWrapperText(value);
+    if (wrapped !== null) return wrapped;
+    if (depth >= MAX_NEST_DEPTH) return `${Object.keys(value).length} field(s)`;
+    const parts: string[] = [];
+    for (const [key, child] of Object.entries(value)) {
+      if (parts.length >= MAX_INLINE_FIELDS) break;
+      const text = formatNested(child, depth + 1);
+      if (text === null) continue;
+      // Parenthesize anything that rendered as several fields of its own — otherwise
+      // "item height 5.37 inches · length 11.94 inches" reads as though length sits beside
+      // item rather than inside it. Keyed off the rendered text, not the child's type, since
+      // a one-element array unwraps to a group too.
+      parts.push(`${key} ${text.includes(FIELD_SEP) ? `(${text})` : text}`);
+    }
+    return parts.length > 0 ? parts.join(FIELD_SEP) : null;
+  }
+
+  return formatScalar(value);
+}
+
 /**
  * Flatten one object into label/value rows. Labels use the attribute's own name only — nested
  * paths are not prefixed, per the display convention for these summaries. Null and undefined
@@ -42,24 +107,17 @@ function toRows(node: Record<string, unknown>, rows: Row[] = []): Row[] {
   for (const [key, value] of Object.entries(node)) {
     if (value === null || value === undefined) continue;
 
-    if (Array.isArray(value)) {
-      if (value.length === 0) continue;
-      // Nested collections stay summarized — expanding them here would bury the plan's own
-      // fields under its children.
-      if (value.some(isPlainObject)) {
-        rows.push({ label: key, value: `${value.length} item(s)` });
-      } else {
-        rows.push({ label: key, value: value.map(formatScalar).join(', ') });
-      }
-      continue;
-    }
-
-    if (isPlainObject(value)) {
+    // A directly nested object still flattens into sibling rows, so its fields keep their own
+    // names. A single-element *array* of one deliberately doesn't: flattening it would drop the
+    // array's name, and `item_dimensions` and `item_package_dimensions` would then both emit
+    // width/length/height rows with no way to tell which is which.
+    if (isPlainObject(value) && valueWrapperText(value) === null) {
       toRows(value, rows);
       continue;
     }
 
-    rows.push({ label: key, value: formatScalar(value) });
+    const text = formatNested(value, 0);
+    if (text !== null) rows.push({ label: key, value: clamp(text) });
   }
   return rows;
 }
