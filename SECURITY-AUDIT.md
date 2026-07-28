@@ -34,18 +34,29 @@ Prompt-field values are user-typed and lower risk, but flow through identically.
 
 ## Open — security
 
-### S1. Unverified credential mapping (Medium)
+### S1. Credential mapping — OAuth branch CONFIRMED, token branch still unverified (Low)
 `basicAuthPairFor()` — [`src/lib/directApi.ts`](src/lib/directApi.ts)
 
-ScanPower's REST auth is HTTP Basic → `getApiToken` → JWT, but `McpServerConfig`
-has no username/password fields, so the mapping is a **guess**: for `authType:
+ScanPower's REST auth is HTTP Basic → `getApiToken` → JWT, but `McpServerConfig` has
+no username/password fields, so the mapping overloads the OAuth ones: for `authType:
 'oauth'` the OAuth `clientId`/`clientSecret` are sent as the Basic username/password;
-for `authType: 'token'` the static token is sent as the username with a blank
-password. If the guess is wrong the app is transmitting OAuth client credentials to
-an endpoint that isn't the OAuth token endpoint. Transport is HTTPS, so the
-practical failure is auth rejection rather than exposure — but this should be
-confirmed against real credentials, and ideally `McpServerConfig` should grow
-explicit REST credential fields rather than overloading OAuth ones.
+for `authType: 'token'` the static token is sent as the username with a blank password.
+
+**The `'oauth'` branch was confirmed against real credentials (2026-07-28)** by a
+successful `scoutSearch` call, which cannot return data unless the whole chain works:
+Basic (`clientId`/`clientSecret`) → `getApiToken` → JWT bearer → `getAccessToken` →
+`x-access-token`. That also closes the separate open item on the `x-access-token` chain.
+
+Still unverified:
+- The **`authType: 'token'`** branch (static token as username, blank password). No
+  configured server uses it, so it has never run.
+- The **re-mint paths**: JWT expiry via `decodeJwtExpiry`, and the 401 retry that clears
+  both the session token and the header tokens. A first call working doesn't exercise
+  either — both need a session held past token expiry.
+
+The design point stands regardless: `McpServerConfig` should grow explicit REST
+credential fields rather than overloading OAuth ones, so the mapping is declared
+rather than inferred.
 
 ### S2. Header parameter values unvalidated (Low)
 `callOperation()` — `headers[param.name] = resolved`
