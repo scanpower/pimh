@@ -1,6 +1,6 @@
 import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
-import { McpOAuthConfig, McpServerConfig } from '../types';
+import type { McpOAuthConfig, McpServerConfig } from '../types';
 import { clearOAuthTokens, loadOAuthTokens, saveOAuthTokens } from './storage';
 
 // Required once so a browser-based auth session resolves its pending promise

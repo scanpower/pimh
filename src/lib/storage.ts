@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as SecureStore from 'expo-secure-store';
-import { AppSettings, ContextNote, McpServerConfig, StoredOAuthTokens } from '../types';
+import type { AppSettings, ContextNote, McpServerConfig, StoredOAuthTokens } from '../types';
 
 const CONTEXTS_KEY = 'pimh.contexts.v1';
 const SETTINGS_KEY = 'pimh.settings.v1';
