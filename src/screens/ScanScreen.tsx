@@ -19,8 +19,8 @@ import * as Clipboard from 'expo-clipboard';
 import Markdown from 'react-native-markdown-display';
 import { AgentBlock, AgentRun, AppSettings, ContextNote, ContextPromptField, ScanEvent } from '../types';
 import { continueScan, hasKeyFor, keyLabelFor, runScan } from '../lib/agent';
-import { expandFieldAliases, parseMemoryFacts } from '../lib/templating';
-import { getOperation } from '../lib/apiSpecs';
+import { getOperation, type ApiOperation } from '../lib/apiSpecs';
+import { buildApiValues, missingValueNames } from '../lib/apiRequirements';
 import { callOperation } from '../lib/directApi';
 import { summarizeApiResult } from '../lib/apiSummary';
 import { printContent } from '../lib/print';
@@ -79,6 +79,9 @@ export default function ScanScreen({
   const [manualCode, setManualCode] = useState('');
   const [run, setRun] = useState<AgentRun>({ status: 'idle', blocks: [] });
   const busyRef = useRef(false);
+  // The prompt-field values this scan ran with. Held in a ref so an API stage deferred behind an
+  // ASK/CHOOSE can rebuild the same value set when the conversation finally finishes.
+  const lastFieldValuesRef = useRef<Record<string, string> | undefined>(undefined);
 
   const keys = useMemo(() => ({ anthropic: apiKey, openai: openAiKey }), [apiKey, openAiKey]);
 
@@ -181,7 +184,114 @@ export default function ScanScreen({
     [mergeMemoryNotes],
   );
 
+  /**
+   * The value lookup a context's API operation resolves its parameters against. `freshNotes` are
+   * the MEMORY facts the model produced during *this* scan (empty for a context with no model
+   * turn); they can't be read back off memoryContext instead, because mergeMemoryNotes routes
+   * through the parent's state and this closure would still see the pre-scan value.
+   */
+  const apiStageValues = useCallback(
+    (
+      context: ContextNote,
+      scan: ScanEvent,
+      fieldValues: Record<string, string> | undefined,
+      freshNotes: string[],
+    ): Record<string, string> =>
+      buildApiValues({
+        memoryText: memoryContext?.instructions,
+        freshNotes,
+        promptFields: context.promptFields,
+        fieldValues,
+        scan: scan.data,
+      }),
+    [memoryContext?.instructions],
+  );
+
+  /** Call the context's operation and render the response as a summary plus the raw result. */
+  const executeApiStage = useCallback(
+    async (
+      stage: NonNullable<ContextNote['apiOperation']>,
+      op: ApiOperation,
+      values: Record<string, string>,
+    ): Promise<AgentBlock[]> => {
+      const result = await callOperation(op, settings, values, stage.paramValues, stage.bodyTemplate);
+      // maybePrintToolResults triggers off the tool name containing "print" — operationIds
+      // like "itemLabel" don't, even though the spec tags it "Printing", so fall back to the
+      // operation's own tags to decide whether this result should auto-print.
+      const printTag = (op.tags ?? []).find((t) => PRINT_TOOL_RE.test(t));
+      const tool = PRINT_TOOL_RE.test(op.operationId) || !printTag ? op.operationId : `${op.operationId} (${printTag})`;
+      const block: AgentBlock = {
+        kind: 'tool_result',
+        content: result.text,
+        isError: result.status < 200 || result.status >= 300,
+        tool,
+      };
+      // Pair the raw result with a rendered summary, so a direct API scan reads like a
+      // model answer instead of showing nothing until "Show tool calls" is switched on.
+      return [...summarizeApiResult(op, result), block];
+    },
+    [settings],
+  );
+
+  /**
+   * The API stage of a context that runs its operation *after* the model. Every failure becomes a
+   * warning block rather than an exception: the model turn before it may have produced a perfectly
+   * good answer and several remembered facts, and discarding those to show one error would lose
+   * more than it explains.
+   */
+  const runChainedApiStage = useCallback(
+    async (
+      context: ContextNote,
+      scan: ScanEvent,
+      fieldValues: Record<string, string> | undefined,
+      freshNotes: string[],
+    ): Promise<AgentBlock[]> => {
+      const stage = context.apiOperation!;
+      try {
+        const op = getOperation(stage.specId, stage.operationId);
+        if (!op) throw new Error(`Operation "${stage.operationId}" not found in spec "${stage.specId}".`);
+        const values = apiStageValues(context, scan, fieldValues, freshNotes);
+        // Checked up front rather than letting callOperation throw, so a model turn that couldn't
+        // find something says which fact was missing instead of failing on an encoded placeholder.
+        const missing = missingValueNames(op, stage.paramValues, stage.bodyTemplate, values);
+        if (missing.length > 0) {
+          return [
+            {
+              kind: 'warning',
+              text:
+                `Skipped the "${stage.operationId}" call — nothing supplied: ${missing.join(', ')}.\n\n` +
+                `The model reports these as "MEMORY: <name>: <value>" lines. Ask the context's instructions ` +
+                `to look them up, add them as prompt fields, or set them by hand under the context's ` +
+                `Direct API call parameters.`,
+            },
+          ];
+        }
+        return await executeApiStage(stage, op, values);
+      } catch (e: any) {
+        return [
+          {
+            kind: 'warning',
+            text: `The "${stage.operationId}" call failed after the model finished.\n\n${e?.message ?? String(e)}`,
+          },
+        ];
+      }
+    },
+    [apiStageValues, executeApiStage],
+  );
+
   const [expandedTools, setExpandedTools] = useState<Set<number>>(new Set());
+
+  /**
+   * Open the section the summarizer flagged (the first object of the returned collection) so the
+   * answer is on screen without a tap; the rest stay collapsed to keep the list scannable.
+   * `offset` is where these blocks start in the run, since a chained call appends after the
+   * model's own blocks and the expansion set is keyed by absolute index.
+   */
+  const openPrimaryApiSection = useCallback((blocks: AgentBlock[], offset: number) => {
+    const primary = blocks.flatMap((b, i) => (b.kind === 'api_section' && b.primary ? [offset + i] : []));
+    if (primary.length > 0) setExpandedTools((prev) => new Set([...prev, ...primary]));
+  }, []);
+
   const toggleTool = useCallback((i: number) => {
     setExpandedTools((prev) => {
       const next = new Set(prev);
@@ -204,45 +314,25 @@ export default function ScanScreen({
       if (busyRef.current) return;
       busyRef.current = true;
       setLastScan(scan);
+      lastFieldValuesRef.current = fieldValues;
       setScanning(false);
       setExpandedTools(new Set());
       setAnswerText('');
       setTopCollapsed(false); // every scan starts with the camera showing
 
-      // A context wired to a direct API operation bypasses the model and MCP entirely — it's a
-      // deterministic REST call, so there's no model judgment to apply.
-      if (activeContext?.apiOperation) {
-        const { specId, operationId, paramValues, bodyTemplate } = activeContext.apiOperation;
+      // A context wired to a direct API operation with runAfterModel off bypasses the model and
+      // MCP entirely — it's a deterministic REST call, so there's no model judgment to apply.
+      if (activeContext?.apiOperation && !activeContext.apiOperation.runAfterModel) {
+        const stage = activeContext.apiOperation;
         setRun({ status: 'running', blocks: [] });
         try {
-          const op = getOperation(specId, operationId);
-          if (!op) throw new Error(`Operation "${operationId}" not found in spec "${specId}".`);
-          const values: Record<string, string> = {
-            ...parseMemoryFacts(memoryContext?.instructions),
-            ...expandFieldAliases(activeContext.promptFields, fieldValues),
-            scan: scan.data,
-          };
-          const result = await callOperation(op, settings, values, paramValues, bodyTemplate);
-          // maybePrintToolResults triggers off the tool name containing "print" — operationIds
-          // like "itemLabel" don't, even though the spec tags it "Printing", so fall back to the
-          // operation's own tags to decide whether this result should auto-print.
-          const printTag = (op.tags ?? []).find((t) => PRINT_TOOL_RE.test(t));
-          const tool = PRINT_TOOL_RE.test(operationId) || !printTag ? operationId : `${operationId} (${printTag})`;
-          const block: AgentBlock = {
-            kind: 'tool_result',
-            content: result.text,
-            isError: result.status < 200 || result.status >= 300,
-            tool,
-          };
-          // Pair the raw result with a rendered summary, so a direct API scan reads like a
-          // model answer instead of showing nothing until "Show tool calls" is switched on.
-          const summary = summarizeApiResult(op, result);
-          const blocks = [...summary, block];
-          // Open the section the summarizer flagged (the first object of the collection) so the
-          // answer is on screen without a tap; the rest stay collapsed to keep the list scannable.
-          setExpandedTools(new Set(blocks.flatMap((b, i) => (b.kind === 'api_section' && b.primary ? [i] : []))));
+          const op = getOperation(stage.specId, stage.operationId);
+          if (!op) throw new Error(`Operation "${stage.operationId}" not found in spec "${stage.specId}".`);
+          const values = apiStageValues(activeContext, scan, fieldValues, []);
+          const blocks = await executeApiStage(stage, op, values);
+          openPrimaryApiSection(blocks, 0);
           setRun({ status: 'done', blocks });
-          void maybePrintToolResults([block]);
+          void maybePrintToolResults(blocks);
         } catch (e: any) {
           setRun({ status: 'error', blocks: [], error: e?.message ?? String(e) });
         } finally {
@@ -266,15 +356,26 @@ export default function ScanScreen({
         const result = await runScan(keys, settings, activeContext, memoryContext, scan, fieldValues, {
           onBlocks: (blocks) => setRun({ status: 'running', blocks }),
         });
+        mergeMemoryNotes(result.memoryNotes);
+
+        // A chained context calls its operation with what the model just found. Held back when
+        // the model asked a question — the answer may well be one of the values the call needs,
+        // so submitPromptAnswer runs the stage once the conversation actually finishes.
+        let blocks = result.blocks;
+        if (activeContext?.apiOperation?.runAfterModel && !result.pendingPrompt) {
+          const stageBlocks = await runChainedApiStage(activeContext, scan, fieldValues, result.memoryNotes);
+          openPrimaryApiSection(stageBlocks, blocks.length);
+          blocks = [...blocks, ...stageBlocks];
+        }
+
         setRun({
           status: 'done',
-          blocks: result.blocks,
+          blocks,
           stopReason: result.stopReason,
           pendingPrompt: result.pendingPrompt,
           messages: result.messages,
         });
-        mergeMemoryNotes(result.memoryNotes);
-        void maybePrintToolResults(result.blocks);
+        void maybePrintToolResults(blocks);
       } catch (e: any) {
         setRun({
           status: 'error',
@@ -285,7 +386,18 @@ export default function ScanScreen({
         busyRef.current = false;
       }
     },
-    [keys, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
+    [
+      keys,
+      settings,
+      activeContext,
+      memoryContext,
+      mergeMemoryNotes,
+      maybePrintToolResults,
+      apiStageValues,
+      executeApiStage,
+      runChainedApiStage,
+      openPrimaryApiSection,
+    ],
   );
 
   const startRun = useCallback(
@@ -324,25 +436,56 @@ export default function ScanScreen({
       const priorBlocks = run.blocks;
       setRun({ status: 'running', blocks: priorBlocks });
       try {
-        const result = await continueScan(keys, settings, activeContext, memoryContext, run.messages, trimmed, {
-          onBlocks: (blocks) => setRun({ status: 'running', blocks: [...priorBlocks, ...blocks] }),
-        });
+        const result = await continueScan(
+          keys,
+          settings,
+          activeContext,
+          memoryContext,
+          run.messages,
+          trimmed,
+          lastFieldValuesRef.current,
+          {
+            onBlocks: (blocks) => setRun({ status: 'running', blocks: [...priorBlocks, ...blocks] }),
+          },
+        );
+        mergeMemoryNotes(result.memoryNotes);
+
+        // The API stage runWithFields held back, now that the model has stopped asking. Facts
+        // from the earlier turns are already in memoryContext (they were merged before this
+        // render), so this turn's notes are the only ones still missing from the lookup.
+        let stageBlocks: AgentBlock[] = [];
+        if (activeContext?.apiOperation?.runAfterModel && !result.pendingPrompt && lastScan) {
+          stageBlocks = await runChainedApiStage(activeContext, lastScan, lastFieldValuesRef.current, result.memoryNotes);
+          openPrimaryApiSection(stageBlocks, priorBlocks.length + result.blocks.length);
+        }
+
         setRun({
           status: 'done',
-          blocks: [...priorBlocks, ...result.blocks],
+          blocks: [...priorBlocks, ...result.blocks, ...stageBlocks],
           stopReason: result.stopReason,
           pendingPrompt: result.pendingPrompt,
           messages: result.messages,
         });
-        mergeMemoryNotes(result.memoryNotes);
-        void maybePrintToolResults(result.blocks);
+        void maybePrintToolResults([...result.blocks, ...stageBlocks]);
       } catch (e: any) {
         setRun({ status: 'error', blocks: priorBlocks, error: e?.message ?? String(e) });
       } finally {
         busyRef.current = false;
       }
     },
-    [run.messages, run.blocks, keys, settings, activeContext, memoryContext, mergeMemoryNotes, maybePrintToolResults],
+    [
+      run.messages,
+      run.blocks,
+      keys,
+      settings,
+      activeContext,
+      memoryContext,
+      lastScan,
+      mergeMemoryNotes,
+      maybePrintToolResults,
+      runChainedApiStage,
+      openPrimaryApiSection,
+    ],
   );
 
   const onBarcodeScanned = useCallback(

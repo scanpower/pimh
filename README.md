@@ -5,7 +5,7 @@ barcode-driven harness: scan a 1D barcode, run it through a user-selected **cont
 note**, and render the result — including printing labels/documents when the work
 calls for it.
 
-A context takes one of two paths:
+A context takes one of three paths:
 
 - **A model** — the context's instructions become the system prompt, and the model can
   call tools on any enabled **MCP server** (e.g. ScanPower's inventory/shipment
@@ -15,6 +15,10 @@ A context takes one of two paths:
   OpenAPI spec and calls it straight over HTTPS, skipping Claude and MCP entirely.
   Use this when the work is deterministic (e.g. "print a label for this SKU"), where
   a model adds latency and cost for no benefit.
+- **Both, chained** — the model runs first with its MCP tools, then the direct API
+  call runs on what it found. Use this when the inputs need discovery but the action
+  doesn't: *look this barcode up with `scout_search` and `get_inventory`, then print a
+  label for it*. See [Chaining a model into an API call](#chaining-a-model-into-an-api-call).
 
 ## How it works
 
@@ -50,6 +54,9 @@ A context takes one of two paths:
      A conversation can't be continued across a model switch, though: the transcript is
      in the provider's own format, so answering an `ASK` means staying on the model
      that asked.
+   - **Both** — if the context's operation has *Run after the model* ticked, the model
+     turn above happens first and the API call follows it, using the `MEMORY:` facts the
+     model just reported. Its result is appended to the same results view.
 4. **Printing** is triggered by the *tool that produced a result*, not by the wording
    of the context: any successful tool result whose tool name contains "print" (e.g.
    ScanPower's `print_item_labels`) is sent to the configured printer. For direct API
@@ -97,6 +104,45 @@ server in Settings (matched by server name against the spec's label). For specs 
 REST auth is HTTP Basic → bearer token (ScanPower's `getApiToken`), the JWT is minted
 on first use and held **in memory for the app session only** — never written to disk —
 and re-minted on expiry or a 401.
+
+## Chaining a model into an API call
+
+Tick **Run after the model, not instead of it** on a context's operation to run both: the
+model gathers, the API acts. Leave the parameters that the model should supply blank.
+
+The two halves talk through **Memory**. Before the scan, the app works out which values the
+call will need — required parameters with no template, plus every `{{token}}` in the ones
+that have templates — and appends them to the system prompt as an explicit contract:
+
+```
+When you are done, this app automatically calls the "itemLabel" API operation using
+the facts you report. End your reply with one MEMORY line per value below, spelling
+each key exactly as shown:
+- MEMORY: condition: <value>
+- MEMORY: title: <value>
+- MEMORY: quantity: <value>
+```
+
+Those facts are then merged over the ones remembered from earlier scans, so a `title` the
+model just found beats a `title` left over from the previous item — which is the whole
+reason the fresh ones take precedence. Values collected by prompt fields are left out of
+the contract entirely; the user has already supplied them.
+
+Three things are deliberate about the sequencing:
+
+- **An `ASK` or `CHOOSE` holds the call back.** The answer is often one of the values the
+  call needs, so the API stage waits until the conversation actually finishes.
+- **A missing value skips the call rather than failing it.** The results view gets a
+  warning naming exactly which facts never arrived, and the model's answer stays on screen.
+- **A failed call doesn't discard the model's work** either — same treatment.
+
+Headers the spec can mint on its own (ScanPower's `x-access-token`) are never asked of the
+model; they're fetched per call as usual.
+
+One sharp edge worth knowing: a value the model *doesn't* report falls through to whatever
+Memory already holds, which may describe the previous item. The contract asks for every
+needed value on every scan to avoid this, but for a destructive or costly operation, prefer
+a prompt field over trusting the fallback.
 
 **To add another API:** drop its OpenAPI JSON into `src/apiSpecs/` and add one entry
 to the `REGISTRY` array in `src/lib/apiSpecs.ts` (optionally naming its

@@ -382,8 +382,8 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
               <View style={{ marginTop: 16 }}>
                 <Text style={styles.sectionLabel}>Direct API call (optional)</Text>
                 <Text style={[styles.dimText, styles.sectionHelp]}>
-                  Skip the model entirely and call this operation straight from the scan — for lookups/actions
-                  that don't need model judgment.
+                  Call this operation straight from the scan — either instead of the model, for lookups and
+                  actions that need no model judgment, or after it, using what its tools found.
                 </Text>
                 {draft.apiOperation ? (
                   <View style={styles.fieldRow}>
@@ -391,6 +391,22 @@ export default function ContextsScreen({ contexts, onChange }: Props) {
                       {draft.apiOperation.operationId}
                     </Text>
                     <Text style={styles.dimText}>{selectedOp?.summary ?? ''}</Text>
+
+                    <TouchableOpacity
+                      style={styles.toggleRow}
+                      onPress={() => updateApiOperation({ runAfterModel: !draft.apiOperation?.runAfterModel })}
+                    >
+                      <Text style={styles.checkbox}>{draft.apiOperation.runAfterModel ? '☑' : '☐'}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.text }}>Run after the model, not instead of it</Text>
+                        <Text style={styles.dimText}>
+                          {draft.apiOperation.runAfterModel
+                            ? 'The model runs first with its MCP tools, then this call uses the facts it reports. ' +
+                              'Leave parameters blank to fill them that way.'
+                            : 'The scan calls this operation directly and never reaches the model.'}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
                     <View style={{ flexDirection: 'row', gap: 14, marginTop: 6 }}>
                       <TouchableOpacity onPress={() => setPickerOpen(true)}>
                         <Text style={styles.linkText}>Change</Text>
@@ -600,6 +616,8 @@ const styles = StyleSheet.create({
   dimText: { color: colors.textDim },
   sectionLabel: { color: colors.text, fontSize: 15, fontWeight: '700', marginBottom: 4 },
   sectionHelp: { fontSize: 12, lineHeight: 16, marginBottom: 10 },
+  toggleRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 10 },
+  checkbox: { color: colors.accent, fontSize: 18, lineHeight: 20 },
   fieldRow: {
     backgroundColor: colors.surfaceAlt,
     borderColor: colors.border,

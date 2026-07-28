@@ -1,4 +1,4 @@
-import { AgentBlock, AppSettings, ContextNote, McpServerConfig, PendingPrompt } from '../types';
+import type { AgentBlock, AppSettings, ContextNote, McpServerConfig, PendingPrompt } from '../types';
 import { getValidAccessToken } from './mcpOAuth';
 
 /**
@@ -94,6 +94,30 @@ export const SIGNAL_INSTRUCTION =
   '- "CHOOSE: <question> | <option 1> | <option 2> | ..." — if the user needs to pick from a small set ' +
   'of options, ask this way instead of listing them in prose.\n' +
   'Use at most one of ASK or CHOOSE per reply, only when truly needed to proceed — otherwise just answer normally.';
+
+/**
+ * Extra instructions for a context whose direct API call runs *after* the model rather than
+ * instead of it (apiOperation.runAfterModel). The model's job in that case is to gather the
+ * values the call needs and report them as MEMORY lines, which is the channel the API stage
+ * reads — so the names have to be spelled exactly as the operation will look them up.
+ *
+ * Remembered facts are deliberately not filtered out of `neededNames`: Memory persists across
+ * scans, so a fact left over from the previous item would otherwise silently satisfy the call
+ * and act on the wrong product.
+ */
+export function buildApiStageInstruction(operationId: string, neededNames: string[]): string {
+  if (neededNames.length === 0) return '';
+  return (
+    `\n\nWhen you are done, this app automatically calls the "${operationId}" API operation using the ` +
+    `facts you report. End your reply with one MEMORY line per value below, spelling each key exactly ` +
+    `as shown:\n` +
+    neededNames.map((name) => `- MEMORY: ${name}: <value>`).join('\n') +
+    `\nEvery one must describe the item scanned in THIS conversation — use your tools to determine them, ` +
+    `and do not carry a value over from "Known context from previous scans" unless you have confirmed it ` +
+    `still applies. If one can only come from the user, ask for it with ASK rather than guessing; the API ` +
+    `call is held until you have what you need.`
+  );
+}
 
 /** The active context's instructions, plus the signal contract and any remembered facts. */
 export function buildSystemPrompt(context: ContextNote | undefined, memory: ContextNote | undefined): string {

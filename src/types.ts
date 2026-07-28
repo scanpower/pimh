@@ -47,6 +47,13 @@ export interface ContextNote {
     paramValues?: Record<string, string>;
     /** JSON request body template (POST/PUT/PATCH operations) — substituted, then JSON-parsed. */
     bodyTemplate?: string;
+    /**
+     * Run the model (with its MCP tools) first and feed the MEMORY facts it produces into this
+     * call, instead of bypassing the model entirely — e.g. look an item up with scout_search and
+     * get_inventory, then print a label for what was found. The model is told which value names
+     * the call needs; facts from this scan take precedence over ones remembered earlier.
+     */
+    runAfterModel?: boolean;
   };
 }
 

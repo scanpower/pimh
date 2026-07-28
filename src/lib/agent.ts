@@ -1,9 +1,11 @@
 import { AppSettings, ContextNote, ScanEvent } from '../types';
-import { RunCallbacks, RunResult } from './agentCommon';
+import { RunCallbacks, RunResult, buildApiStageInstruction } from './agentCommon';
 import { runAnthropicConversation } from './claude';
 import { runOpenAiConversation } from './openai';
 import { providerFor } from './models';
-import { expandFieldAliases, parseMemoryFacts, substituteFields } from './templating';
+import { getOperation } from './apiSpecs';
+import { requiredValueNames } from './apiRequirements';
+import { expandFieldAliases, lookupEntry, parseMemoryFacts, substituteFields } from './templating';
 
 export type { RunCallbacks, RunResult } from './agentCommon';
 
@@ -43,6 +45,46 @@ function runConversation(
 }
 
 /**
+ * Instructions telling the model which facts the context's queued API call needs, for a context
+ * that runs an operation after the model rather than instead of it. Names already answered by
+ * this scan's prompt fields are dropped — the user has supplied those, so asking the model to
+ * restate them just invites a contradictory value.
+ */
+function apiStageInstruction(context: ContextNote, fieldAliases: Record<string, string>): string {
+  const stage = context.apiOperation;
+  if (!stage?.runAfterModel) return '';
+  const op = getOperation(stage.specId, stage.operationId);
+  if (!op) return ''; // a spec that's no longer bundled — the API stage reports this itself
+  const needed = requiredValueNames(op, stage.paramValues, stage.bodyTemplate).filter(
+    (name) => !lookupEntry(name, fieldAliases)?.value,
+  );
+  return buildApiStageInstruction(op.operationId, needed);
+}
+
+/**
+ * The context as the model should see it: {{fieldId}} tokens filled from this scan's prompt
+ * fields and Memory, plus the API-stage contract when one is queued. Applied on every turn of a
+ * conversation, not just the first — the system prompt is rebuilt from the context each request,
+ * so resolving it only once would silently drop both on the turn after an ASK or CHOOSE.
+ */
+function resolveContext(
+  context: ContextNote | undefined,
+  memory: ContextNote | undefined,
+  fieldValues: Record<string, string> | undefined,
+): ContextNote | undefined {
+  if (!context) return context;
+  const fieldAliases = expandFieldAliases(context.promptFields, fieldValues);
+  return {
+    ...context,
+    instructions:
+      substituteFields(context.instructions, {
+        ...parseMemoryFacts(memory?.instructions),
+        ...fieldAliases,
+      }) + apiStageInstruction(context, fieldAliases),
+  };
+}
+
+/**
  * Run a scan through the selected model. The active context note's instructions become the
  * system prompt (with any {{fieldId}} tokens substituted from fieldValues and Memory); enabled
  * MCP servers are attached so the model can execute tools (e.g. ScanPower).
@@ -56,15 +98,7 @@ export async function runScan(
   fieldValues: Record<string, string> | undefined,
   callbacks: RunCallbacks,
 ): Promise<RunResult> {
-  const resolvedContext = context
-    ? {
-        ...context,
-        instructions: substituteFields(context.instructions, {
-          ...parseMemoryFacts(memory?.instructions),
-          ...expandFieldAliases(context.promptFields, fieldValues),
-        }),
-      }
-    : context;
+  const resolvedContext = resolveContext(context, memory, fieldValues);
 
   const fieldLines =
     context?.promptFields && fieldValues
@@ -93,7 +127,8 @@ export async function runScan(
 /**
  * Answer a pendingPrompt (ASK or CHOOSE) and continue the same conversation. `priorMessages`
  * is in the wire format of whichever provider produced it, so switching models mid-conversation
- * is not supported — start a new scan instead.
+ * is not supported — start a new scan instead. `fieldValues` are the same ones the scan started
+ * with, so the continuation's system prompt resolves identically to the opening turn's.
  */
 export async function continueScan(
   keys: ApiKeys,
@@ -102,8 +137,9 @@ export async function continueScan(
   memory: ContextNote | undefined,
   priorMessages: any[],
   answer: string,
+  fieldValues: Record<string, string> | undefined,
   callbacks: RunCallbacks,
 ): Promise<RunResult> {
   const messages = [...priorMessages, { role: 'user', content: answer }];
-  return runConversation(keys, settings, context, memory, messages, callbacks);
+  return runConversation(keys, settings, resolveContext(context, memory, fieldValues), memory, messages, callbacks);
 }
