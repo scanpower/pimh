@@ -108,17 +108,50 @@ function normalizeServer(s: any): McpServerConfig {
   };
 }
 
+/**
+ * The context a fresh install starts on: look the scanned item up with ScanPower's get_inventory
+ * tool, then print a label for it. A worked example of a chained context (apiOperation with
+ * runAfterModel) — the model finds the FNSKU and title, and the itemLabel call turns them into a
+ * label. Only `copies` is spelled by the API's schema rather than by the prompt field it comes
+ * from; the rest of the body reads as written.
+ */
 export const DEFAULT_CONTEXT: ContextNote = {
-  id: 'default-lookup',
-  name: 'Product lookup',
+  id: 'print-item-label',
+  name: 'Print Item Label',
   instructions:
-    'You are a product-scanning assistant for an e-commerce seller. The user scans a 1D barcode (usually a UPC/EAN). ' +
-    'Identify the product if you can, and if MCP tools are available (e.g. ScanPower), use them to look up the item, ' +
-    'current inventory, pricing, and profitability. Reply with a concise summary the user can read on a phone screen, ' +
-    'leading with the product name and the single most important fact or recommended action.',
+    'You are a warehouse assistant for an e-commerce seller. The user scans a 1D barcode and wants an item ' +
+    'label printed for it.\n\n' +
+    'Call the ScanPower get_inventory tool with the scanned barcode to identify the item, and report its FNSKU ' +
+    'and product title — the label is generated from those. If get_inventory returns more than one match, use ' +
+    'CHOOSE to let the user pick which one. If it returns nothing, say so plainly and do not invent an FNSKU: a ' +
+    'guessed barcode prints a label that sends the item to the wrong place.\n\n' +
+    'Keep your reply to one short line naming the item — the label prints on its own once you are done.',
   active: true,
   createdAt: 0,
   updatedAt: 0,
+  promptFields: [{ id: 'quantity', label: 'Quantity', type: 'text' }],
+  apiOperation: {
+    specId: 'scanpower',
+    operationId: 'itemLabel',
+    runAfterModel: true,
+    // `copies` is the field the schema defines for the label count — it's declared a number, so
+    // the quantity typed into the prompt field is coerced from text on the way out. Accept is
+    // left unset deliberately: asking for application/pdf returns raw binary, which the response
+    // is not currently read as (see SECURITY-AUDIT C3), whereas the default is a data URI that
+    // print.ts already handles.
+    bodyTemplate: `{
+  "label_width": 2.25,
+  "label_height": 1,
+  "items": [
+    {
+      "barcode_value": "{{fnsku}}",
+      "copies": "{{quantity}}",
+      "condition": "New",
+      "title": "{{title}}"
+    }
+  ]
+}`,
+  },
 };
 
 export const DEFAULT_MEMORY_CONTEXT: ContextNote = {
